@@ -31,6 +31,27 @@ import (
 var _ identity.Pool = new(Persister)
 var _ identity.PrivilegedPool = new(Persister)
 
+var (
+	Comparison = map[string]string{
+		"eq":   "=",
+		"gt":   ">",
+		"lt":   "<",
+		"gte":  ">=",
+		"lte":  "<=",
+		"ne":   "<>",
+		"in":   "in",
+		"like": "like",
+	}
+	// ConnectionDialect format will be (key -> field -> comparison -> value)
+	ConnectionDialect = map[string]string{
+		"sqlite3":   `json_extract(%s, '$.%s') %s ?`,
+		"mysql":     `json_extract(%s, '$.%s') %s ?`,
+		"mariadb":   `json_extract(%s, '$.%s') %s ?`,
+		"postgres":  `%s %s ?`,
+		"cockroach": `%s %s ?`,
+	}
+)
+
 func (p *Persister) ListVerifiableAddresses(ctx context.Context, page, itemsPerPage int) (a []identity.VerifiableAddress, err error) {
 	if err := p.GetConnection(ctx).Where("nid = ?", corp.ContextualizeNID(ctx, p.nid)).Order("id DESC").Paginate(page, x.MaxItemsPerPage(itemsPerPage)).All(&a); err != nil {
 		return nil, sqlcon.HandleError(err)
@@ -269,6 +290,108 @@ func (p *Persister) CreateIdentity(ctx context.Context, i *identity.Identity) er
 
 		return p.createIdentityCredentials(ctx, i)
 	})
+}
+
+func (p *Persister) constructIdentityFilter(_ context.Context, filters []*identity.FilterIdentityBody) ([]*identity.FilterIdentityBody, error) {
+	// change comparison string to sql format
+	for k, v := range filters {
+		// if filter is doesn't match with map comparison fallback to equals
+		if _, ok := Comparison[v.Comparison]; !ok {
+			filters[k].Comparison = Comparison["eq"]
+			continue
+		}
+		// if query comparison is like then add %keyName%
+		if v.Comparison == Comparison["like"] {
+			filters[k].Value = "'%" + v.Value + "%'"
+		}
+
+		filters[k].Comparison = Comparison[v.Comparison]
+	}
+	return filters, nil
+}
+
+func (p *Persister) buildIdentityFilterScope(ctx context.Context, filters []*identity.FilterIdentityBody) pop.ScopeFunc {
+	return func(q *pop.Query) *pop.Query {
+		for _, v := range filters {
+			dialect, ok := ConnectionDialect[p.Connection(ctx).Dialect.Name()]
+			if !ok {
+				return q
+			}
+
+			// if dialect is postgres and cockroach and formatting filter as key->>'key'
+			if dialect == ConnectionDialect["postgres"] || dialect == ConnectionDialect["cockroach"] {
+				sp := strings.Split(v.Key, ".")
+				// if len less than 1 then this filter is not complete
+				// this should be traits.keyName
+				if len(sp) <= 1 {
+					sp = []string{"traits", sp[0]}
+				}
+				v.Key = sp[0]
+				for _, qu := range sp[1:] {
+					v.Key += fmt.Sprintf(`->>'%s'`, qu)
+				}
+			}
+
+			// if query is where in
+			if v.Comparison == Comparison["in"] {
+				qFormat := fmt.Sprintf("%s %s (?)", v.Key, v.Comparison)
+				q = q.Where(qFormat, v.Values)
+				continue
+			}
+
+			// if query comparison in like then no need to add query param
+			if v.Comparison == Comparison["like"] {
+				qFormat := fmt.Sprintf("%s %s %s", v.Key, v.Comparison, v.Value)
+				q = q.Where(qFormat)
+				continue
+			}
+
+			comparison := fmt.Sprintf(dialect, v.Key, v.Comparison)
+			q = q.Where(comparison, v.Value)
+		}
+		return q
+	}
+}
+
+func (p *Persister) ListIdentitiesFiltered(ctx context.Context, filter identity.AdminFilterIdentityBody, page, perPage int) ([]identity.Identity, error) {
+	is := make([]identity.Identity, 0)
+
+	// validate equality filter
+	filters, err := p.constructIdentityFilter(ctx, filter.Filters)
+	if err != nil {
+		return nil, err
+	}
+
+	/* #nosec G201 TableName is static */
+	if err := sqlcon.HandleError(p.GetConnection(ctx).Where("nid = ?", corp.ContextualizeNID(ctx, p.nid)).
+		EagerPreload("VerifiableAddresses", "RecoveryAddresses").
+		Paginate(page, perPage).Order("id DESC").
+		Scope(p.buildIdentityFilterScope(ctx, filters)).
+		All(&is)); err != nil {
+		return nil, err
+	}
+
+	schemaCache := map[string]string{}
+
+	for k := range is {
+		i := &is[k]
+		if err := i.ValidateNID(); err != nil {
+			return nil, sqlcon.HandleError(err)
+		}
+
+		if u, ok := schemaCache[i.SchemaID]; ok {
+			i.SchemaURL = u
+		} else {
+			if err := p.injectTraitsSchemaURL(ctx, i); err != nil {
+				return nil, err
+			}
+			schemaCache[i.SchemaID] = i.SchemaURL
+		}
+
+		is[k] = *i
+	}
+
+	return is, nil
 }
 
 func (p *Persister) ListIdentities(ctx context.Context, page, perPage int) ([]identity.Identity, error) {

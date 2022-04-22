@@ -24,8 +24,11 @@ import (
 	"github.com/ory/kratos/driver/config"
 )
 
-const RouteCollection = "/identities"
-const RouteItem = RouteCollection + "/:id"
+const (
+	RouteCollectionFilter = "/identities-filter"
+	RouteCollection = "/identities"
+	RouteItem = RouteCollection + "/:id"
+)
 
 type (
 	handlerDependencies interface {
@@ -79,6 +82,7 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.DELETE(RouteItem, h.delete)
 
 	admin.POST(RouteCollection, h.create)
+	admin.POST(RouteCollectionFilter, h.listFiltered)
 	admin.PUT(RouteItem, h.update)
 }
 
@@ -91,6 +95,83 @@ type identityList []Identity
 // nolint:deadcode,unused
 type adminListIdentities struct {
 	x.PaginationParams
+}
+
+// swagger:model adminFilterIdentityBody
+type AdminFilterIdentityBody struct {
+	Filters []*FilterIdentityBody `json:"filters"`
+}
+
+// swagger:model filterIdentityBody
+type FilterIdentityBody struct {
+	Key string `json:"key"`
+	Value string `json:"value"`
+	Values []string `json:"values"`
+	Comparison string `json:"comparison"`
+}
+
+// swagger:route POST /admin/identities-filter v0alpha2 adminListIdentitiesFilter
+//
+// List Identities with filtered value
+//
+//	comparison = {
+//    "eq": "=",
+//    "gt": ">",
+//    "lt": "<",
+//    "gte": ">=",
+//    "lte": "<=",
+//    "ne": "=!",
+//    "in": "in",
+//	}
+// Lists all identities. with filtered value
+// payload will be like this:
+//	{
+//    "filters":[{
+//        "key": "traits.email",
+//        "comparison": "eq",
+//        "value": "foo",
+//    },{
+//        "key": "traits.username",
+//        "comparison": "in",
+//        "values": ["bar", "baz"],
+//    }]
+//	}
+//
+// Learn how identities work in [Ory Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
+//
+//     Produces:
+//     - application/json
+//
+//     Schemes: http, https
+//
+//     Security:
+//       oryAccessToken:
+//
+//     Responses:
+//       200: identityList
+//       500: jsonError
+func (h *Handler) listFiltered(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p AdminFilterIdentityBody
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	page, itemsPerPage := x.ParsePagination(r)
+	is, err := h.r.IdentityPool().ListIdentitiesFiltered(r.Context(), p, page, itemsPerPage)
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	total, err := h.r.IdentityPool().CountIdentities(r.Context())
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	x.PaginationHeader(w, urlx.AppendPaths(h.r.Config(r.Context()).SelfAdminURL(), RouteCollection), total, page, itemsPerPage)
+	h.r.Writer().Write(w, r, is)
 }
 
 // swagger:route GET /admin/identities v0alpha2 adminListIdentities

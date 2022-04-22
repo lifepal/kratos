@@ -2,7 +2,6 @@ package identity
 
 import (
 	"context"
-
 	"github.com/gofrs/uuid"
 )
 
@@ -10,6 +9,9 @@ type (
 	Pool interface {
 		// ListIdentities lists all identities in the store given the page and itemsPerPage.
 		ListIdentities(ctx context.Context, page, itemsPerPage int) ([]Identity, error)
+
+		// ListIdentitiesFiltered lists all identities in the store given the page and itemsPerPage with filter parameter
+		ListIdentitiesFiltered(ctx context.Context, filter AdminFilterIdentityBody, page, itemsPerPage int) ([]Identity, error)
 
 		// CountIdentities counts the number of identities in the store.
 		CountIdentities(ctx context.Context) (int64, error)
@@ -62,5 +64,6 @@ type (
 
 		// ListRecoveryAddresses lists all tracked recovery addresses.
 		ListRecoveryAddresses(ctx context.Context, page, itemsPerPage int) ([]RecoveryAddress, error)
+
 	}
 )
