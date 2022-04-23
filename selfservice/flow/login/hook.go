@@ -1,17 +1,22 @@
 package login
 
 import (
+	"encoding/json"
+	"github.com/ory/kratos/driver/config"
+	"github.com/ory/kratos/identity"
+	"github.com/ory/kratos/session"
+	"net/http"
+)
+
+import (
 	"context"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
 
-	"github.com/ory/kratos/driver/config"
-	"github.com/ory/kratos/identity"
+	"github.com/dgrijalva/jwt-go"
 	"github.com/ory/kratos/selfservice/flow"
-	"github.com/ory/kratos/session"
 	"github.com/ory/kratos/x"
 )
 
@@ -47,6 +52,20 @@ type (
 		LoginHookExecutor() *HookExecutor
 	}
 )
+
+type Token struct {
+	Traits json.RawMessage `json:"traits"`
+	UserId string `json:"user_id"`
+	TokenType string `json:"token_type"`
+	SessionId string `json:"session_id"`
+	SessionToken string `json:"session_token"`
+	jwt.StandardClaims
+}
+
+type ResponseLogin struct {
+	Access string `json:"token,omitempty"`
+	Refresh string `json:"refresh,omitempty"`
+}
 
 func PostHookExecutorNames(e []PostHookExecutor) []string {
 	names := make([]string, len(e))
@@ -174,6 +193,59 @@ func (e *HookExecutor) PostLoginHook(w http.ResponseWriter, r *http.Request, a *
 	}
 
 	x.ContentNegotiationRedirection(w, r, s.Declassify(), e.d.Writer(), returnTo.String())
+	return nil
+}
+
+func (e *HookExecutor) LifepallPostLoginHook(w http.ResponseWriter, r *http.Request, a *Flow, i *identity.Identity, s *session.Session) error {
+	// create token
+	if err := s.Activate(i, e.d.Config(r.Context()), time.Now().UTC()); err != nil {
+		return err
+	}
+
+	// create jwt claims
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, Token{
+		Traits: json.RawMessage(i.Traits),
+		UserId: i.NID.String(),
+		SessionId: s.ID.String(),
+		SessionToken: s.Token,
+		TokenType: "access",
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: time.Now().UTC().Add(e.d.Config(r.Context()).SessionLifespan()).Unix(),
+			Issuer:    getIssuer(),
+		},
+	})
+	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, Token{
+		Traits: json.RawMessage(i.Traits),
+		UserId: i.NID.String(),
+		SessionId: s.ID.String(),
+		SessionToken: s.Token,
+		TokenType: "refresh",
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: time.Now().UTC().Add(e.d.Config(r.Context()).SessionLifespan() * 2).Unix(),
+			Issuer:    getIssuer(),
+		},
+	})
+
+	if err := e.d.SessionPersister().UpsertSession(r.Context(), s); err != nil {
+		return errors.WithStack(err)
+	}
+	e.d.Audit().
+		WithRequest(r).
+		WithField("session_id", s.ID).
+		WithField("identity_id", i.ID).
+		Info("Identity authenticated successfully and was issued an Ory Kratos Session Token.")
+
+	response := &APIFlowResponse{Session: s, Token: s.Token}
+	if _, required := e.requiresAAL2(r, s, a); required {
+		// If AAL is not satisfied, we omit the identity to preserve the user's privacy in case of a phishing attack.
+		response.Session.Identity = nil
+	}
+
+	var wrapResponse = new(ResponseLogin)
+	wrapResponse.Access, _ = token.SignedString([]byte(getJwtSecret()))
+	wrapResponse.Refresh, _ = refresh.SignedString([]byte(getJwtSecret()))
+
+	e.d.Writer().Write(w, r, wrapResponse)
 	return nil
 }
 

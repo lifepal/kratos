@@ -17,3 +17,4 @@ schema.sql
 heap_profiler/
 goroutine_dump/
 inflight_trace_dump/
+kratos-dev.yml

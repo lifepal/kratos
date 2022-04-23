@@ -2,14 +2,12 @@ package session
 
 import (
 	"context"
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gofrs/uuid"
+	"github.com/ory/x/urlx"
+	"github.com/pkg/errors"
 	"net/http"
 	"net/url"
-
-	"github.com/ory/x/urlx"
-
-	"github.com/gofrs/uuid"
-
-	"github.com/pkg/errors"
 
 	"github.com/ory/kratos/driver/config"
 
@@ -128,6 +126,58 @@ func (s *ManagerHTTP) extractToken(r *http.Request) string {
 
 	token, _ = bearerTokenFromRequest(r)
 	return token
+}
+
+func (s *ManagerHTTP) FetchFromRequestLifepal(ctx context.Context, r *http.Request) (*Session, error) {
+	token := s.extractToken(r)
+	if token == "" {
+		return nil, errors.WithStack(NewErrNoActiveSessionFound())
+	}
+
+	decodeToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
+        return []byte(getJwtSecret()), nil
+    })
+
+	// if error not expired then this token is invalid
+	v, _ := err.(*jwt.ValidationError)
+	if v != nil && v.Errors != jwt.ValidationErrorExpired {
+		return nil, errors.WithStack(NewErrNoActiveSessionFound())
+	}
+
+	// fetch value from this token
+	tokenClaims := decodeToken.Claims
+	mapClaims := tokenClaims.(jwt.MapClaims)
+	sessionToken := mapClaims["session_token"].(string)
+
+	//check if any error from expired instance
+	if v != nil && v.Errors == jwt.ValidationErrorExpired {
+		if err = s.r.SessionPersister().RevokeSessionByToken(r.Context(), sessionToken); err != nil {
+			if errors.Is(err, sqlcon.ErrNoRows) {
+				return nil, errors.WithStack(NewErrNoActiveSessionFound())
+			}
+			return nil, errors.WithStack(NewErrNoActiveSessionFound())
+		}
+	}
+
+	if !decodeToken.Valid {
+		return nil, errors.WithStack(NewErrNoActiveSessionFound())
+	}
+
+	se, err := s.r.SessionPersister().GetSessionByToken(ctx, sessionToken)
+	if err != nil {
+		if errors.Is(err, herodot.ErrNotFound) || errors.Is(err, sqlcon.ErrNoRows) {
+			return nil, errors.WithStack(NewErrNoActiveSessionFound())
+		}
+		return nil, err
+	}
+
+	if !se.IsActive() {
+		return nil, errors.WithStack(NewErrNoActiveSessionFound())
+	}
+
+	se.Identity = se.Identity.CopyWithoutCredentials()
+
+	return se, nil
 }
 
 func (s *ManagerHTTP) FetchFromRequest(ctx context.Context, r *http.Request) (*Session, error) {
