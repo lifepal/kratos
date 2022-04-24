@@ -97,6 +97,44 @@ func (f Flow) TableName(ctx context.Context) string {
 	return corp.ContextualizeTableName(ctx, "selfservice_verification_flows")
 }
 
+func NewLifepalFlow(conf *config.Config, exp time.Duration, csrf string, r *http.Request, strategies Strategies, ft flow.Type) (*Flow, error) {
+	now := time.Now().UTC()
+	id := x.NewUUID()
+
+	// Pre-validate the return to URL which is contained in the HTTP request.
+	requestURL := x.RequestURL(r).String()
+	_, err := x.SecureRedirectTo(r,
+		conf.SelfServiceBrowserDefaultReturnTo(),
+		x.SecureRedirectUseSourceURL(requestURL),
+		x.SecureRedirectAllowURLs(conf.SelfServiceBrowserAllowedReturnToDomains()),
+		x.SecureRedirectAllowSelfServiceURLs(conf.SelfPublicURL()),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	f := &Flow{
+		ID:        id,
+		ExpiresAt: now.Add(exp), IssuedAt: now,
+		RequestURL: requestURL,
+		UI: &container.Container{
+			Method: "POST",
+			Action: flow.AppendFlowTo(urlx.AppendPaths(conf.SelfPublicURL(), LifepalRouteSubmitFlow), id).String(),
+		},
+		CSRFToken: csrf,
+		State:     StateChooseMethod,
+		Type:      ft,
+	}
+
+	for _, strategy := range strategies {
+		if err := strategy.PopulateVerificationMethod(r, f); err != nil {
+			return nil, err
+		}
+	}
+
+	return f, nil
+}
+
 func NewFlow(conf *config.Config, exp time.Duration, csrf string, r *http.Request, strategies Strategies, ft flow.Type) (*Flow, error) {
 	now := time.Now().UTC()
 	id := x.NewUUID()

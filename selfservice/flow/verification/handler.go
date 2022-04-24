@@ -29,7 +29,8 @@ const (
 	RouteInitAPIFlow     = "/self-service/verification/api"
 	RouteGetFlow         = "/self-service/verification/flows"
 
-	RouteSubmitFlow = "/self-service/verification"
+	RouteSubmitFlow        = "/self-service/verification"
+	LifepalRouteSubmitFlow = "/self-service/lifepal-verification"
 )
 
 type (
@@ -62,6 +63,7 @@ func NewHandler(d handlerDependencies) *Handler {
 func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	h.d.CSRFHandler().IgnorePath(RouteInitAPIFlow)
 	h.d.CSRFHandler().IgnorePath(RouteSubmitFlow)
+	h.d.CSRFHandler().IgnorePath(LifepalRouteSubmitFlow)
 
 	public.GET(RouteInitBrowserFlow, h.initBrowserFlow)
 	public.GET(RouteInitAPIFlow, h.initAPIFlow)
@@ -69,6 +71,8 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 
 	public.POST(RouteSubmitFlow, h.submitFlow)
 	public.GET(RouteSubmitFlow, h.submitFlow)
+	public.GET(LifepalRouteSubmitFlow, h.lifepalSubmitFlow)
+	public.POST(LifepalRouteSubmitFlow, h.lifepalSubmitFlow)
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
@@ -78,6 +82,8 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 
 	admin.POST(RouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(RouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+	admin.GET(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+	admin.POST(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 }
 
 // swagger:route GET /self-service/verification/api v0alpha2 initializeSelfServiceVerificationFlowWithoutBrowser
@@ -384,6 +390,80 @@ func (h *Handler) submitFlow(w http.ResponseWriter, r *http.Request, ps httprout
 	if err != nil {
 		h.d.VerificationFlowErrorHandler().WriteFlowError(w, r, f, g, err)
 		return
+	}
+
+	h.d.Writer().Write(w, r, updatedFlow)
+}
+
+
+func (h *Handler) lifepalSubmitFlow(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	// init flow id
+	req, err := NewLifepalFlow(h.d.Config(r.Context()), h.d.Config(r.Context()).SelfServiceFlowVerificationRequestLifespan(), h.d.GenerateCSRFToken(r), r, h.d.VerificationStrategies(r.Context()), flow.TypeAPI)
+	if err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+	if err := h.d.VerificationFlowPersister().CreateVerificationFlow(r.Context(), req); err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+
+	rid := req.ID
+
+	f, err := h.d.VerificationFlowPersister().GetVerificationFlow(r.Context(), rid)
+	if errors.Is(err, sqlcon.ErrNoRows) {
+		h.d.VerificationFlowErrorHandler().WriteFlowError(w, r, nil, node.DefaultGroup, errors.WithStack(herodot.ErrNotFound.WithReasonf("The verification request could not be found. Please restart the flow.")))
+		return
+	} else if err != nil {
+		h.d.VerificationFlowErrorHandler().WriteFlowError(w, r, nil, node.DefaultGroup, err)
+		return
+	}
+
+	if err := f.Valid(); err != nil {
+		h.d.VerificationFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	var g node.UiNodeGroup
+	var found bool
+	var successfullyActivate = false
+	for _, ss := range h.d.AllVerificationStrategies() {
+		err := ss.Verify(w, r, f)
+		if errors.Is(err, flow.ErrStrategyNotResponsible) {
+			continue
+		} else if errors.Is(err, flow.ErrCompletedByStrategy) {
+			return
+		} else if errors.Is(err, flow.ActivateSuccessfully) {
+			successfullyActivate = true
+		} else if err != nil {
+			h.d.VerificationFlowErrorHandler().WriteFlowError(w, r, f, ss.VerificationNodeGroup(), err)
+			return
+		}
+
+		found = true
+		g = ss.VerificationNodeGroup()
+		break
+	}
+
+	if !found {
+		h.d.VerificationFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewNoVerificationStrategyResponsible()))
+		return
+	}
+
+	if f.Type == flow.TypeBrowser && !x.IsJSONRequest(r) {
+		http.Redirect(w, r, f.AppendTo(h.d.Config(r.Context()).SelfServiceFlowVerificationUI()).String(), http.StatusSeeOther)
+		return
+	}
+
+	updatedFlow, err := h.d.VerificationFlowPersister().GetVerificationFlow(r.Context(), f.ID)
+	if err != nil {
+		h.d.VerificationFlowErrorHandler().WriteFlowError(w, r, f, g, err)
+		return
+	}
+
+	// if successfully activate then change the state
+	if successfullyActivate {
+		updatedFlow.State = StateSuccessActivate
 	}
 
 	h.d.Writer().Write(w, r, updatedFlow)

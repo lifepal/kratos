@@ -12,6 +12,7 @@ package verification
 type State string
 
 const (
+	StateSuccessActivate    State = "success_activate"
 	StateChooseMethod    State = "choose_method"
 	StateEmailSent       State = "sent_email"
 	StatePassedChallenge State = "passed_challenge"

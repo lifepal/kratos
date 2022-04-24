@@ -126,7 +126,7 @@ func (s *Sender) SendVerificationLink(ctx context.Context, f *verification.Flow,
 		return err
 	}
 
-	if err := s.SendVerificationTokenTo(ctx, f, i, address, token); err != nil {
+	if err := s.SendLifepalVerificationTokenTo(ctx, f, i, address, token); err != nil {
 		return err
 	}
 	return nil
@@ -172,6 +172,36 @@ func (s *Sender) SendVerificationTokenTo(ctx context.Context, f *verification.Fl
 	if err := s.send(ctx, string(address.Via), email.NewVerificationValid(s.r,
 		&email.VerificationValidModel{To: address.Value, VerificationURL: urlx.CopyWithQuery(
 			urlx.AppendPaths(s.r.Config(ctx).SelfServiceLinkMethodBaseURL(), verification.RouteSubmitFlow),
+			url.Values{
+				"flow":  {f.ID.String()},
+				"token": {token.Token},
+			}).String(), Identity: model})); err != nil {
+		return err
+	}
+	address.Status = identity.VerifiableAddressStatusSent
+	if err := s.r.PrivilegedIdentityPool().UpdateVerifiableAddress(ctx, address); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Sender) SendLifepalVerificationTokenTo(ctx context.Context, f *verification.Flow, i *identity.Identity, address *identity.VerifiableAddress, token *VerificationToken) error {
+	s.r.Audit().
+		WithField("via", address.Via).
+		WithField("identity_id", address.IdentityID).
+		WithField("verification_link_id", token.ID).
+		WithSensitiveField("email_address", address.Value).
+		WithSensitiveField("verification_link_token", token.Token).
+		Info("Sending out verification email with verification link.")
+
+	model, err := x.StructToMap(i)
+	if err != nil {
+		return err
+	}
+
+	if err := s.send(ctx, string(address.Via), email.NewVerificationValid(s.r,
+		&email.VerificationValidModel{To: address.Value, VerificationURL: urlx.CopyWithQuery(
+			urlx.AppendPaths(s.r.Config(ctx).SelfServiceLinkMethodBaseURL(), verification.LifepalRouteSubmitFlow),
 			url.Values{
 				"flow":  {f.ID.String()},
 				"token": {token.Token},
