@@ -134,11 +134,12 @@ func (s *ManagerHTTP) FetchFromRequestLifepal(ctx context.Context, r *http.Reque
 		return nil, errors.WithStack(NewErrNoActiveSessionFound())
 	}
 
+	// process decode token as interface
 	decodeToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
         return []byte(getJwtSecret()), nil
     })
 
-	// if error not expired then this token is invalid
+	// if error then this token might be corrupt
 	v, _ := err.(*jwt.ValidationError)
 	if v != nil && v.Errors != jwt.ValidationErrorExpired {
 		return nil, errors.WithStack(NewErrNoActiveSessionFound())
@@ -146,11 +147,12 @@ func (s *ManagerHTTP) FetchFromRequestLifepal(ctx context.Context, r *http.Reque
 
 	// fetch value from this token
 	tokenClaims := decodeToken.Claims
-	mapClaims := tokenClaims.(jwt.MapClaims)
-	sessionToken := mapClaims["session_token"].(string)
+	claims := tokenClaims.(jwt.MapClaims)
+	sessionToken := claims["session_token"].(string)
 
 	//check if any error from expired instance
 	if v != nil && v.Errors == jwt.ValidationErrorExpired {
+		// if token is expired then set to internal ory as expired session
 		if err = s.r.SessionPersister().RevokeSessionByToken(r.Context(), sessionToken); err != nil {
 			if errors.Is(err, sqlcon.ErrNoRows) {
 				return nil, errors.WithStack(NewErrNoActiveSessionFound())
@@ -159,6 +161,7 @@ func (s *ManagerHTTP) FetchFromRequestLifepal(ctx context.Context, r *http.Reque
 		}
 	}
 
+	// if decode token is invalid then return as unknown session
 	if !decodeToken.Valid {
 		return nil, errors.WithStack(NewErrNoActiveSessionFound())
 	}

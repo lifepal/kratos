@@ -54,7 +54,7 @@ type (
 )
 
 type Token struct {
-	Traits json.RawMessage `json:"traits"`
+	json.RawMessage
 	UserId string `json:"user_id"`
 	TokenType string `json:"token_type"`
 	SessionId string `json:"session_id"`
@@ -202,26 +202,27 @@ func (e *HookExecutor) LifepallPostLoginHook(w http.ResponseWriter, r *http.Requ
 		return err
 	}
 
+	oryDefaultSessionLifetime := e.d.Config(r.Context()).SessionLifespan()
 	// create jwt claims
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, Token{
-		Traits: json.RawMessage(i.Traits),
+		RawMessage: json.RawMessage(i.Traits),
 		UserId: i.NID.String(),
 		SessionId: s.ID.String(),
 		SessionToken: s.Token,
 		TokenType: "access",
 		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().UTC().Add(e.d.Config(r.Context()).SessionLifespan()).Unix(),
+			ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime).Unix(),
 			Issuer:    getIssuer(),
 		},
 	})
 	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, Token{
-		Traits: json.RawMessage(i.Traits),
+		RawMessage: json.RawMessage(i.Traits),
 		UserId: i.NID.String(),
 		SessionId: s.ID.String(),
 		SessionToken: s.Token,
 		TokenType: "refresh",
 		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().UTC().Add(e.d.Config(r.Context()).SessionLifespan() * 2).Unix(),
+			ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime * 2).Unix(),
 			Issuer:    getIssuer(),
 		},
 	})
