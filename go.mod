@@ -9,7 +9,7 @@ replace (
 	github.com/knadh/koanf => github.com/aeneasr/koanf v0.14.1-0.20211230115640-aa3902b3267a
 	github.com/luna-duclos/instrumentedsql => github.com/ory/instrumentedsql v1.2.0
 	github.com/luna-duclos/instrumentedsql/opentracing => github.com/ory/instrumentedsql/opentracing v0.0.0-20210903114257-c8963b546c5c
-	github.com/mattn/go-sqlite3 => github.com/mattn/go-sqlite3 v1.14.7-0.20210414154423-1157a4212dcb
+	github.com/mattn/go-sqlite3 => github.com/mattn/go-sqlite3 v1.14.12
 	github.com/oleiade/reflections => github.com/oleiade/reflections v1.0.1
 	// Use the internal httpclient which can be generated in this codebase but mark it as the
 	// official SDK, allowing for the Ory CLI to consume Ory Kratos' CLI commands.
