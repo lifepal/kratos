@@ -1,6 +1,9 @@
 package login
 
 import (
+	"encoding/json"
+	"fmt"
+	"github.com/ory/x/jsonx"
 	"net/http"
 	"time"
 
@@ -25,6 +28,7 @@ import (
 	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/selfservice/errorx"
 	"github.com/ory/kratos/selfservice/flow"
+
 	"github.com/ory/kratos/session"
 	"github.com/ory/kratos/x"
 )
@@ -37,11 +41,13 @@ const (
 
 	RouteSubmitFlow        = "/self-service/login"
 	LifepalRouteSubmitFlow = "/self-service/login/auth"
+	LifepalOauthRouteSubmitFlow = "/self-service/login/oauth"
 )
 
 type (
 	handlerDependencies interface {
 		HookExecutorProvider
+		identity.PrivilegedPoolProvider
 		FlowPersistenceProvider
 		errorx.ManagementProvider
 		StrategyProvider
@@ -70,6 +76,7 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	h.d.CSRFHandler().IgnorePath(RouteInitAPIFlow)
 	h.d.CSRFHandler().IgnorePath(RouteSubmitFlow)
 	h.d.CSRFHandler().IgnorePath(LifepalRouteSubmitFlow)
+	h.d.CSRFHandler().IgnorePath(LifepalOauthRouteSubmitFlow)
 
 	public.GET(RouteInitBrowserFlow, h.initBrowserFlow)
 	public.GET(RouteInitAPIFlow, h.initAPIFlow)
@@ -78,6 +85,7 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	public.POST(RouteSubmitFlow, h.submitFlow)
 	public.GET(RouteSubmitFlow, h.submitFlow)
 	public.POST(LifepalRouteSubmitFlow, h.lifepalSubmitFlow)
+	public.POST(LifepalOauthRouteSubmitFlow, h.lifepalOauthlSubmitFlow)
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
@@ -89,6 +97,8 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.GET(RouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 	admin.POST(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+	admin.POST(LifepalOauthRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+	admin.GET(LifepalOauthRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 }
 
 func (h *Handler) NewLoginFlow(w http.ResponseWriter, r *http.Request, ft flow.Type) (*Flow, error) {
@@ -708,6 +718,111 @@ continueLogin:
 	}
 
 	if err := h.d.LoginHookExecutor().LifepallPostLoginHook(w, r, f, i, sess); err != nil {
+		if errors.Is(err, ErrAddressNotVerified) {
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewAddressNotVerifiedError()))
+			return
+		}
+
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+}
+
+type LifepalOauthLoginPayload struct {
+	AuthCode string `json:"auth_code"`
+	RedirectUri string `json:"redirect_uri"`
+	Provider string `json:"provider"`
+}
+
+type GoogleResponseProfile struct {
+	Id string `json:"id"`
+	Email string `json:"email"`
+	VerifiedEmail bool `json:"verified_email"`
+	Name string `json:"name"`
+	GivenName string `json:"given_name"`
+	FamilyName string `json:"family_name"`
+	Picture string `json:"picture"`
+	Locale string `json:"locale"`
+	Hd string `json:"hd"`
+}
+
+func fetchUserProfileFromToken(p *LifepalOauthLoginPayload) (*GoogleResponseProfile, error){
+	var (
+		baseUrl = "https://www.googleapis.com/oauth2/v2/userinfo"
+		accessToken = p.AuthCode
+	)
+	resp, err := http.Get(fmt.Sprintf(`%s?access_token=%s`, baseUrl, accessToken))
+	if err != nil {
+		return nil, errors.WithStack(errors.New("unable to find user with this token"))
+	}
+	defer resp.Body.Close()
+
+	var structResp = new(GoogleResponseProfile)
+	err = json.NewDecoder(resp.Body).Decode(structResp)
+	if err != nil {
+		return nil, errors.WithStack(errors.New("unable to decode user with this token"))
+	}
+	return structResp, nil
+}
+
+func (h *Handler) lifepalOauthlSubmitFlow(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(LifepalOauthLoginPayload)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+	userProfile, err := fetchUserProfileFromToken(p)
+	if err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidAccessToken))
+		return
+	}
+	var i *identity.Identity
+	i, err = h.d.PrivilegedIdentityPool().GetIdentityConfidentialByEmail(r.Context(), userProfile.Email)
+	if err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidAccessToken))
+		return
+	}
+
+	f, err := h.NewLoginFlow(w, r, flow.TypeAPI)
+	if err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+	f.Refresh = false
+
+	f, err = h.d.LoginFlowPersister().GetLoginFlow(r.Context(), f.ID)
+	if err != nil {
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	sess, err := h.d.SessionManager().FetchFromRequest(r.Context(), r)
+	if err == nil {
+		if x.IsJSONRequest(r) || f.Type == flow.TypeAPI {
+			// We are not upgrading AAL, nor are we refreshing. Error!
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(ErrAlreadyLoggedIn))
+			return
+		}
+
+		http.Redirect(w, r, h.d.Config(r.Context()).SelfServiceBrowserDefaultReturnTo().String(), http.StatusSeeOther)
+		return
+	} else if e := new(session.ErrNoActiveSessionFound); errors.As(err, &e) {
+		// Only failure scenario here is if we try to upgrade the session to a higher AAL without actually
+		// having a session.
+		if f.RequestedAAL > identity.AuthenticatorAssuranceLevel1 {
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(ErrSessionRequiredForHigherAAL))
+			return
+		}
+
+		sess = session.NewInactiveSession()
+	} else {
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	sess.AMR = append(sess.AMR, session.AuthenticationMethod{Method: identity.CredentialsType(p.Provider), AAL: identity.AuthenticatorAssuranceLevel1, CompletedAt: time.Now().UTC()})
+
+	if err := h.d.LoginHookExecutor().LifepallOauthPostLoginHook(w, r, f, i, sess); err != nil {
 		if errors.Is(err, ErrAddressNotVerified) {
 			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewAddressNotVerifiedError()))
 			return
