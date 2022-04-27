@@ -35,7 +35,8 @@ const (
 
 	RouteGetFlow = "/self-service/login/flows"
 
-	RouteSubmitFlow = "/self-service/login"
+	RouteSubmitFlow        = "/self-service/login"
+	LifepalRouteSubmitFlow = "/self-service/login/auth"
 )
 
 type (
@@ -68,6 +69,7 @@ func NewHandler(d handlerDependencies) *Handler {
 func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	h.d.CSRFHandler().IgnorePath(RouteInitAPIFlow)
 	h.d.CSRFHandler().IgnorePath(RouteSubmitFlow)
+	h.d.CSRFHandler().IgnorePath(LifepalRouteSubmitFlow)
 
 	public.GET(RouteInitBrowserFlow, h.initBrowserFlow)
 	public.GET(RouteInitAPIFlow, h.initAPIFlow)
@@ -75,6 +77,7 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 
 	public.POST(RouteSubmitFlow, h.submitFlow)
 	public.GET(RouteSubmitFlow, h.submitFlow)
+	public.POST(LifepalRouteSubmitFlow, h.lifepalSubmitFlow)
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
@@ -84,6 +87,8 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 
 	admin.POST(RouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(RouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+	admin.POST(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+	admin.GET(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 }
 
 func (h *Handler) NewLoginFlow(w http.ResponseWriter, r *http.Request, ft flow.Type) (*Flow, error) {
@@ -607,6 +612,102 @@ continueLogin:
 	}
 
 	if err := h.d.LoginHookExecutor().PostLoginHook(w, r, f, i, sess); err != nil {
+		if errors.Is(err, ErrAddressNotVerified) {
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewAddressNotVerifiedError()))
+			return
+		}
+
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+}
+
+// swagger:route POST /api/login v0alpha2 submitSelfServiceLoginFlow
+// this is new end point lifepal login many functionality is changed here
+func (h *Handler) lifepalSubmitFlow(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	f, err := h.NewLoginFlow(w, r, flow.TypeAPI)
+	if err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+	f.Refresh = true
+
+	f, err = h.d.LoginFlowPersister().GetLoginFlow(r.Context(), f.ID)
+	if err != nil {
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	sess, err := h.d.SessionManager().FetchFromRequest(r.Context(), r)
+	if err == nil {
+		if f.Refresh {
+			// If we want to refresh, continue the login
+			goto continueLogin
+		}
+
+		if f.RequestedAAL > sess.AuthenticatorAssuranceLevel {
+			// If we want to upgrade AAL, continue the login
+			goto continueLogin
+		}
+
+		if x.IsJSONRequest(r) || f.Type == flow.TypeAPI {
+			// We are not upgrading AAL, nor are we refreshing. Error!
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(ErrAlreadyLoggedIn))
+			return
+		}
+
+		http.Redirect(w, r, h.d.Config(r.Context()).SelfServiceBrowserDefaultReturnTo().String(), http.StatusSeeOther)
+		return
+	} else if e := new(session.ErrNoActiveSessionFound); errors.As(err, &e) {
+		// Only failure scenario here is if we try to upgrade the session to a higher AAL without actually
+		// having a session.
+		if f.RequestedAAL > identity.AuthenticatorAssuranceLevel1 {
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(ErrSessionRequiredForHigherAAL))
+			return
+		}
+
+		sess = session.NewInactiveSession()
+	} else {
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+continueLogin:
+	if err := f.Valid(); err != nil {
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	var i *identity.Identity
+	for _, ss := range h.d.AllLoginStrategies() {
+		interim, err := ss.Login(w, r, f, sess)
+		if errors.Is(err, flow.ErrStrategyNotResponsible) {
+			continue
+		} else if errors.Is(err, flow.ErrCompletedByStrategy) {
+			return
+		} else if err != nil {
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, ss.NodeGroup(), err)
+			return
+		}
+
+		// What can happen is that we re-authenticate as another user. In this case, we need to use a completely fresh
+		// session!
+		if sess.IdentityID != uuid.Nil && sess.IdentityID != interim.ID {
+			sess = session.NewInactiveSession()
+		}
+
+		method := ss.CompletedAuthenticationMethod(r.Context())
+		sess.CompletedLoginFor(method.Method, method.AAL)
+		i = interim
+		break
+	}
+
+	if i == nil {
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewNoLoginStrategyResponsible()))
+		return
+	}
+
+	if err := h.d.LoginHookExecutor().LifepallPostLoginHook(w, r, f, i, sess); err != nil {
 		if errors.Is(err, ErrAddressNotVerified) {
 			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewAddressNotVerifiedError()))
 			return
