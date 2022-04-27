@@ -897,6 +897,7 @@ func (h *Handler) lifepalOauthlSubmitFlow(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// add manual login provider in database
 	sess.AMR = append(sess.AMR, session.AuthenticationMethod{Method: identity.CredentialsType(LoginProvider[p.Provider]), AAL: identity.AuthenticatorAssuranceLevel1, CompletedAt: time.Now().UTC()})
 	if err := h.d.LoginHookExecutor().LifepallOauthPostLoginHook(w, r, f, i, sess); err != nil {
 		if errors.Is(err, ErrAddressNotVerified) {
