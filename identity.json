@@ -1,0 +1,173 @@
+{
+    "$id": "http://mydomain.com/schemas/v2/customer.schema.json",
+    "title": "Customer",
+    "type": "object",
+    "properties": {
+        "traits": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "title": "E-Mail",
+                    "type": "string",
+                    "format": "email",
+                    "ory.sh/kratos": {
+                        "credentials": {
+                            "password": {
+                                "identifier": true
+                            }
+                        },
+                        "recovery": {
+                            "via": "email"
+                        },
+                        "verification": {
+                            "via": "email"
+                        }
+                    }
+                },
+                "phone": {
+                    "title": "Phone",
+                    "type": "string",
+                    "format": "tel",
+                    "ory.sh/kratos": {
+                        "credentials": {
+                            "password": {
+                                "identifier": true
+                            }
+                        }
+                    }
+                },
+                "organization": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "string",
+                            "title": "organization id",
+                            "maxLength": 256
+                        },
+                        "name": {
+                            "type": "string",
+                            "title": "organization name",
+                            "maxLength": 256
+                        },
+                        "is_active": {
+                            "type": "boolean",
+                            "title": "is active"
+                        },
+                        "leads_owner": {
+                            "type": "string",
+                            "title": "leads owner"
+                        },
+                        "created_at": {
+                            "type": "string",
+                            "title": "created at"
+                        },
+                        "updated_at": {
+                            "type": "string",
+                            "title": "updated at"
+                        },
+                        "show_commission": {
+                            "type": "boolean",
+                            "title": "show commision"
+                        },
+                        "enable_qa": {
+                            "type": "boolean",
+                            "title": "enable qa"
+                        },
+                        "show_level_in_dashboard": {
+                            "type": "boolean",
+                            "title": "show level in dashboard"
+                        },
+                        "show_shortcuts_in_dashboard": {
+                            "type": "boolean",
+                            "title": "show shortcuts in dashboard"
+                        },
+                        "use_simple_lead_status": {
+                            "type": "boolean",
+                            "title": "use simple lead status"
+                        },
+                        "show_member_structure": {
+                            "type": "boolean",
+                            "title": "show member structure"
+                        },
+                        "slug": {
+                            "type": "string",
+                            "title": "slug"
+                        },
+                        "logo": {
+                            "type": "string",
+                            "title": "logo"
+                        }
+                    }
+                },
+                "last_login": {
+                    "type": "string",
+                    "title": "Last login date"
+                },
+                "is_superuser": {
+                    "type": "boolean",
+                    "title": "Is super user"
+                },
+                "username": {
+                    "type": "string",
+                    "title": "Username"
+                },
+                "social_id": {
+                    "type": "number",
+                    "title": "Social Id"
+                },
+                "social_type": {
+                    "type": "number",
+                    "title": "Social type"
+                },
+                "source": {
+                    "type": "number",
+                    "title": "Source"
+                },
+                "human_id": {
+                    "type": "number",
+                    "title": "Human id"
+                },
+                "is_verified": {
+                    "type": "boolean",
+                    "title": "Is user is Verified"
+                },
+                "phone_number": {
+                    "type": "string",
+                    "title": "Phone number"
+                },
+                "updated_at": {
+                    "type": "string",
+                    "title": "Last updated record"
+                },
+                "first_name": {
+                    "type": "string",
+                    "title": "First name"
+                },
+                "last_name": {
+                    "type": "string",
+                    "title": "Last name"
+                },
+                "is_staff": {
+                    "type": "boolean",
+                    "title": "Is user is staff"
+                },
+                "is_active": {
+                    "type": "boolean",
+                    "title": "Is user is active"
+                },
+                "date_joined": {
+                    "type": "string",
+                    "title": "Date user is join"
+                },
+                "organization_id": {
+                    "type": "string",
+                    "title": "User organization id"
+                }
+            },
+            "required": [
+                "email"
+            ],
+            "additionalProperties": false
+        }
+    }
+}
