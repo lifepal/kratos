@@ -21,7 +21,8 @@ func getIssuer() string {
 func getFirebaseCredential() string {
 	var firebaseCred = os.Getenv("FIREBASE_CREDENTIAL_FILE")
 	if len(firebaseCred) == 0{
-		return "/Volumes/Dataku/Development/Go/go-firebase/django-auth-345906-firebase-adminsdk-jgqh7-85ea2d42c9.json"
+		// example: /home/django-auth-345906-firebase-adminsdk-jgqh7-85ea2d42c9.json
+		return ""
 	}
 	return firebaseCred
 }
