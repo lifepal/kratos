@@ -32,6 +32,7 @@ const (
 	RouteGetFlow = "/self-service/registration/flows"
 
 	RouteSubmitFlow = "/self-service/registration"
+	LifepalRouteSubmitFlow = "/self-service/register"
 )
 
 type (
@@ -63,6 +64,7 @@ func NewHandler(d handlerDependencies) *Handler {
 func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	h.d.CSRFHandler().IgnorePath(RouteInitAPIFlow)
 	h.d.CSRFHandler().IgnorePath(RouteSubmitFlow)
+	h.d.CSRFHandler().IgnorePath(LifepalRouteSubmitFlow)
 
 	public.GET(RouteInitBrowserFlow, h.initBrowserFlow)
 	public.GET(RouteInitAPIFlow, h.d.SessionHandler().IsNotAuthenticated(h.initApiFlow,
@@ -72,6 +74,9 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 
 	public.POST(RouteSubmitFlow, h.d.SessionHandler().IsNotAuthenticated(h.submitFlow, h.onAuthenticated))
 	public.GET(RouteSubmitFlow, h.d.SessionHandler().IsNotAuthenticated(h.submitFlow, h.onAuthenticated))
+
+	public.GET(LifepalRouteSubmitFlow, h.d.SessionHandler().IsNotAuthenticated(h.lifepalSubmitFlow, h.onAuthenticated))
+	public.POST(LifepalRouteSubmitFlow, h.d.SessionHandler().IsNotAuthenticated(h.lifepalSubmitFlow, h.onAuthenticated))
 }
 
 func (h *Handler) onAuthenticated(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -89,6 +94,9 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.GET(RouteGetFlow, x.RedirectToPublicRoute(h.d))
 	admin.POST(RouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(RouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+
+	admin.POST(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+	admin.GET(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 }
 
 func (h *Handler) NewRegistrationFlow(w http.ResponseWriter, r *http.Request, ft flow.Type) (*Flow, error) {
@@ -467,6 +475,62 @@ func (h *Handler) submitFlow(w http.ResponseWriter, r *http.Request, _ httproute
 	}
 
 	if err := h.d.RegistrationExecutor().PostRegistrationHook(w, r, s.ID(), f, i); err != nil {
+		h.d.RegistrationFlowErrorHandler().WriteFlowError(w, r, f, s.NodeGroup(), err)
+		return
+	}
+}
+
+func (h *Handler) lifepalSubmitFlow(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	// create new registration flow
+	rid, err := h.NewRegistrationFlow(w, r, flow.TypeAPI)
+	if err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+
+	f, err := h.d.RegistrationFlowPersister().GetRegistrationFlow(r.Context(), rid.ID)
+	if err != nil {
+		h.d.RegistrationFlowErrorHandler().WriteFlowError(w, r, nil, node.DefaultGroup, err)
+		return
+	}
+
+	if _, err := h.d.SessionManager().FetchFromRequest(r.Context(), r); err == nil {
+		if f.Type == flow.TypeBrowser {
+			http.Redirect(w, r, h.d.Config(r.Context()).SelfServiceBrowserDefaultReturnTo().String(), http.StatusSeeOther)
+			return
+		}
+
+		h.d.Writer().WriteError(w, r, errors.WithStack(ErrAlreadyLoggedIn))
+		return
+	}
+
+	if err := f.Valid(); err != nil {
+		h.d.RegistrationFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	i := identity.NewIdentity(h.d.Config(r.Context()).DefaultIdentityTraitsSchemaID())
+	var s Strategy
+	for _, ss := range h.d.AllRegistrationStrategies() {
+		if err := ss.Register(w, r, f, i); errors.Is(err, flow.ErrStrategyNotResponsible) {
+			continue
+		} else if errors.Is(err, flow.ErrCompletedByStrategy) {
+			return
+		} else if err != nil {
+			h.d.RegistrationFlowErrorHandler().WriteFlowError(w, r, f, ss.NodeGroup(), err)
+			return
+		}
+
+		s = ss
+		break
+	}
+
+	if s == nil {
+		h.d.RegistrationFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewNoRegistrationStrategyResponsible()))
+		return
+	}
+
+	if err := h.d.RegistrationExecutor().PostLifepalRegistrationHook(w, r, s.ID(), f, i); err != nil {
 		h.d.RegistrationFlowErrorHandler().WriteFlowError(w, r, f, s.NodeGroup(), err)
 		return
 	}
