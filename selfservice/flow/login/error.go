@@ -32,7 +32,7 @@ var (
 	ErrInvalidAccessToken = herodot.ErrUnauthorized.WithID(text.ErrIDSessionRequiredForHigherAAL).WithError("invalid token").WithReason("This token might be expired or invalid")
 
 	// ErrInvalidProvider provider is not found
-	ErrInvalidProvider = herodot.ErrUnauthorized.WithID(text.ErrIDSessionRequiredForHigherAAL).WithError("invalid provider").WithReason("This provider might is invalid")
+	ErrInvalidProvider = herodot.ErrUnauthorized.WithID(text.ErrIDSessionRequiredForHigherAAL).WithError("invalid provider").WithReason("This provider is invalid")
 )
 
 type (

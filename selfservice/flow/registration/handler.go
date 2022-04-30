@@ -1,6 +1,10 @@
 package registration
 
 import (
+	"encoding/json"
+	"github.com/ory/kratos/selfservice/flow/login"
+	"github.com/ory/x/jsonx"
+	"github.com/ory/x/sqlcon"
 	"net/http"
 	"time"
 
@@ -32,12 +36,22 @@ const (
 	RouteGetFlow = "/self-service/registration/flows"
 
 	RouteSubmitFlow = "/self-service/registration"
-	LifepalRouteSubmitFlow = "/self-service/register"
+	LifepalRouteSubmitFlow = "/self-service/register/password"
+	LifepalOauthRouteSubmitFlow = "/self-service/register/oauth"
 )
+
+var RegisterProvider = map[string]flow.Type{
+	"firebase": flow.TypeFirebase,
+	"google": flow.TypeGoogle,
+	"api": flow.TypeAPI,
+}
 
 type (
 	handlerDependencies interface {
 		config.Provider
+		identity.PrivilegedPoolProvider
+		identity.ValidationProvider
+		identity.ManagementProvider
 		errorx.ManagementProvider
 		session.HandlerProvider
 		session.ManagementProvider
@@ -65,6 +79,7 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	h.d.CSRFHandler().IgnorePath(RouteInitAPIFlow)
 	h.d.CSRFHandler().IgnorePath(RouteSubmitFlow)
 	h.d.CSRFHandler().IgnorePath(LifepalRouteSubmitFlow)
+	h.d.CSRFHandler().IgnorePath(LifepalOauthRouteSubmitFlow)
 
 	public.GET(RouteInitBrowserFlow, h.initBrowserFlow)
 	public.GET(RouteInitAPIFlow, h.d.SessionHandler().IsNotAuthenticated(h.initApiFlow,
@@ -77,6 +92,9 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 
 	public.GET(LifepalRouteSubmitFlow, h.d.SessionHandler().IsNotAuthenticated(h.lifepalSubmitFlow, h.onAuthenticated))
 	public.POST(LifepalRouteSubmitFlow, h.d.SessionHandler().IsNotAuthenticated(h.lifepalSubmitFlow, h.onAuthenticated))
+
+	public.GET(LifepalOauthRouteSubmitFlow, h.d.SessionHandler().IsNotAuthenticated(h.lifepalOauthSubmitFlow, h.onAuthenticated))
+	public.POST(LifepalOauthRouteSubmitFlow, h.d.SessionHandler().IsNotAuthenticated(h.lifepalOauthSubmitFlow, h.onAuthenticated))
 }
 
 func (h *Handler) onAuthenticated(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -97,6 +115,9 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 
 	admin.POST(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+
+	admin.POST(LifepalOauthRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+	admin.GET(LifepalOauthRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 }
 
 func (h *Handler) NewRegistrationFlow(w http.ResponseWriter, r *http.Request, ft flow.Type) (*Flow, error) {
@@ -530,8 +551,132 @@ func (h *Handler) lifepalSubmitFlow(w http.ResponseWriter, r *http.Request, _ ht
 		return
 	}
 
-	if err := h.d.RegistrationExecutor().PostLifepalRegistrationHook(w, r, s.ID(), f, i); err != nil {
+	if err := h.d.RegistrationExecutor().LifepalPostRegistrationHook(w, r, s.ID(), f, i); err != nil {
 		h.d.RegistrationFlowErrorHandler().WriteFlowError(w, r, f, s.NodeGroup(), err)
+		return
+	}
+}
+
+type LifepalRegisterPropertyPayload struct {
+	Email string `json:"email,omitempty"`
+	Phone string `json:"phone,omitempty"`
+	Source int `json:"source,omitempty"`
+	HumanId int `json:"human_id,omitempty"`
+	IsStaff bool `json:"is_staff,omitempty"`
+	Username string `json:"username,omitempty"`
+	IsActive bool `json:"is_active,omitempty"`
+	LastName string `json:"last_name,omitempty"`
+	SocialId int `json:"social_id,omitempty"`
+	FirstName string `json:"first_name,omitempty"`
+	LastLogin string `json:"last_login,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	DateJoined string `json:"date_joined,omitempty"`
+	IsVerified string `json:"is_verified,omitempty"`
+	SocialType int `json:"social_type,omitempty"`
+	IsSuperUser bool `json:"is_super_user,omitempty"`
+	PhoneNumber string `json:"phone_number,omitempty"`
+	OrganizationId string `json:"organization_id,omitempty"`
+}
+
+type LifepalOauthRegisterPayload struct {
+	// identifier can be any code or id
+	// if login with google then identifier will as access token
+	// if login with firebase then identifier will as firebase user id
+	Identifier  string `json:"identifier,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	Property LifepalRegisterPropertyPayload
+}
+
+func (h *Handler) lifepalOauthSubmitFlow(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(LifepalOauthRegisterPayload)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	//check if provider is exists
+	if _, ok := login.LoginProvider[p.Provider]; !ok {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(login.ErrInvalidProvider))
+		return
+	}
+
+	var i = identity.NewIdentity(h.d.Config(r.Context()).DefaultIdentityTraitsSchemaID())
+	// if register using google
+	if login.LoginProvider[p.Provider] == login.LoginProvider["google"] {
+		userProfile, err := login.FetchUserTokenProfileFromGoogle(&login.LifepalOauthLoginPayload{Identifier: p.Identifier})
+		if err != nil {
+			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(login.ErrInvalidAccessToken))
+			return
+		}
+		p.Property.FirstName, p.Property.LastName = getFirstNameLastName(userProfile.Name)
+		p.Property.Email = userProfile.Email
+	}
+
+	// if login with firebase
+	if login.LoginProvider[p.Provider] == login.LoginProvider["firebase"] {
+		firebaseProfile, err := login.FetchUserFromFirebase(&login.LifepalOauthLoginPayload{Identifier: p.Identifier})
+		if err != nil {
+			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, err)
+			return
+		}
+		p.Property.FirstName, p.Property.LastName = getFirstNameLastName(firebaseProfile.DisplayName)
+		p.Property.Email = firebaseProfile.Email
+		p.Property.Phone = firebaseProfile.PhoneNumber
+		p.Property.PhoneNumber = firebaseProfile.PhoneNumber
+	}
+
+	// mark registration user as complete
+	// if we want to verify using email uncomment this and try to research mail slurper
+	// this remarkable verification is using password and oauth
+	i.VerifiableAddresses = append(i.VerifiableAddresses, identity.VerifiableAddress{
+		ID: x.NewUUID(),
+		Verified: true,
+		Value: p.Property.Email,
+		Status: "completed",
+		CreatedAt: time.Now().UTC(),
+		Via: "mail",
+	})
+
+
+	i.Traits, _ = json.Marshal(p.Property)
+	if err := h.d.PrivilegedIdentityPool().CreateIdentity(r.Context(), i); err != nil {
+		if errors.Is(err, sqlcon.ErrUniqueViolation) {
+			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(schema.NewDuplicateCredentialsError()))
+			return
+		}
+	}
+
+	// create new registration flow
+	rid, err := h.NewRegistrationFlow(w, r, RegisterProvider[p.Provider])
+	if err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+
+	f, err := h.d.RegistrationFlowPersister().GetRegistrationFlow(r.Context(), rid.ID)
+	if err != nil {
+		h.d.RegistrationFlowErrorHandler().WriteFlowError(w, r, nil, node.DefaultGroup, err)
+		return
+	}
+
+	if _, err := h.d.SessionManager().FetchFromRequest(r.Context(), r); err == nil {
+		if f.Type == flow.TypeBrowser {
+			http.Redirect(w, r, h.d.Config(r.Context()).SelfServiceBrowserDefaultReturnTo().String(), http.StatusSeeOther)
+			return
+		}
+
+		h.d.Writer().WriteError(w, r, errors.WithStack(ErrAlreadyLoggedIn))
+		return
+	}
+
+	if err := f.Valid(); err != nil {
+		h.d.RegistrationFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+
+	if err := h.d.RegistrationExecutor().LifepalOauthPostRegistrationHook(w, r, identity.CredentialsTypeLifepalOauth, f, i); err != nil {
+		h.d.RegistrationFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
 		return
 	}
 }

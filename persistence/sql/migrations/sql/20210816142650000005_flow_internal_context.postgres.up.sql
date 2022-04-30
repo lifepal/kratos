@@ -1,1 +1,1 @@
-ALTER TABLE "selfservice_registration_flows" ALTER COLUMN "internal_context" TYPE jsonb, ALTER COLUMN "internal_context" SET NOT NULL;
+ALTER TABLE "selfservice_registration_flows" ALTER COLUMN "internal_context" TYPE jsonb, ALTER COLUMN "internal_context" SET NOT NULL, ADD COLUMN "register_provider" VARCHAR (255) NOT NULL DEFAULT 'password';

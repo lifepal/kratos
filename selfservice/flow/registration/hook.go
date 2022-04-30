@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
+	"github.com/ory/kratos/selfservice/flow/login"
 	"net/http"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/schema"
 	"github.com/ory/kratos/selfservice/flow"
-	"github.com/ory/kratos/selfservice/flow/login"
 	"github.com/ory/kratos/session"
 	"github.com/ory/kratos/x"
 )
@@ -195,8 +195,7 @@ func (e *HookExecutor) PostRegistrationHook(w http.ResponseWriter, r *http.Reque
 	return nil
 }
 
-
-func (e *HookExecutor) PostLifepalRegistrationHook(w http.ResponseWriter, r *http.Request, ct identity.CredentialsType, a *Flow, i *identity.Identity) error {
+func (e *HookExecutor) LifepalPostRegistrationHook(w http.ResponseWriter, r *http.Request, ct identity.CredentialsType, a *Flow, i *identity.Identity) error {
 	e.d.Logger().
 		WithRequest(r).
 		WithField("identity_id", i.ID).
@@ -241,7 +240,7 @@ func (e *HookExecutor) PostLifepalRegistrationHook(w http.ResponseWriter, r *htt
 
 	// Verify the redirect URL before we do any other processing.
 	c := e.d.Config(r.Context())
-	_, err := x.SecureRedirectTo(r, c.SelfServiceBrowserDefaultReturnTo(),
+	returnTo, err := x.SecureRedirectTo(r, c.SelfServiceBrowserDefaultReturnTo(),
 		x.SecureRedirectUseSourceURL(a.RequestURL),
 		x.SecureRedirectAllowURLs(c.SelfServiceBrowserAllowedReturnToDomains()),
 		x.SecureRedirectAllowSelfServiceURLs(c.SelfPublicURL()),
@@ -297,87 +296,93 @@ func (e *HookExecutor) PostLifepalRegistrationHook(w http.ResponseWriter, r *htt
 		WithField("identity_id", i.ID).
 		Debug("Post registration execution hooks completed successfully.")
 
-
 	if a.Type == flow.TypeAPI || x.IsJSONRequest(r) {
-		e.d.Writer().Write(w, r, map[string]interface{}{
-			"status": 200,
-			"message": fmt.Sprintf(`successfully register users`),
-		})
+		e.d.Writer().Write(w, r, &APIFlowResponse{Identity: i})
 		return nil
 	}
 
-	// create token
-	if err = s.Activate(i, e.d.Config(r.Context()), time.Now().UTC()); err != nil {
+	x.ContentNegotiationRedirection(w, r, s.Declassify(), e.d.Writer(), returnTo.String())
+	return nil
+}
+
+func (e *HookExecutor) LifepalOauthPostRegistrationHook(w http.ResponseWriter, r *http.Request, ct identity.CredentialsType, a *Flow, i *identity.Identity) error {
+
+	s, err := session.NewActiveSession(i, e.d.Config(r.Context()), time.Now().UTC(), ct, identity.AuthenticatorAssuranceLevel1)
+	if err != nil {
+		return err
+	}
+
+	s.AuthenticatedAt = time.Now().UTC()
+	if err := e.d.SessionPersister().UpsertSession(r.Context(), s); err != nil {
 		return err
 	}
 
 	oryDefaultSessionLifetime := e.d.Config(r.Context()).SessionLifespan()
+		uTraits := new(login.UserTraits)
+		json.Unmarshal(s.Identity.Traits, uTraits)
+		// create jwt claims
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, login.Token{
+			Email: uTraits.Email,
+			Phone: uTraits.Phone,
+			Source: uTraits.Source,
+			HumanId: uTraits.HumanId,
+			IsStaff: uTraits.IsStaff,
+			Username: uTraits.Username,
+			IsActive: uTraits.IsActive,
+			LastName: uTraits.LastName,
+			SocialId: uTraits.SocialId,
+			FirstName: uTraits.FirstName,
+			LastLogin: uTraits.LastLogin,
+			UpdatedAt: uTraits.UpdatedAt,
+			DateJoined: uTraits.DateJoined,
+			IsVerified: uTraits.IsVerified,
+			SocialType: uTraits.SocialType,
+			IsSuperUser: uTraits.IsSuperUser,
+			PhoneNumber: uTraits.PhoneNumber,
+			OrganizationId: uTraits.OrganizationId,
+			UserId: s.NID.String(),
+			SessionId: s.ID.String(),
+			SessionToken: s.Token,
+			TokenType: "access",
+			StandardClaims: jwt.StandardClaims{
+				ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime).Unix(),
+				Issuer:    login.GetIssuer(),
+			},
+		})
+		refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, login.Token{
+			Email: uTraits.Email,
+			Phone: uTraits.Phone,
+			Source: uTraits.Source,
+			HumanId: uTraits.HumanId,
+			IsStaff: uTraits.IsStaff,
+			Username: uTraits.Username,
+			IsActive: uTraits.IsActive,
+			LastName: uTraits.LastName,
+			SocialId: uTraits.SocialId,
+			FirstName: uTraits.FirstName,
+			LastLogin: uTraits.LastLogin,
+			UpdatedAt: uTraits.UpdatedAt,
+			DateJoined: uTraits.DateJoined,
+			IsVerified: uTraits.IsVerified,
+			SocialType: uTraits.SocialType,
+			IsSuperUser: uTraits.IsSuperUser,
+			PhoneNumber: uTraits.PhoneNumber,
+			OrganizationId: uTraits.OrganizationId,
+			UserId: s.NID.String(),
+			SessionId: s.ID.String(),
+			SessionToken: s.Token,
+			TokenType: "refresh",
+			StandardClaims: jwt.StandardClaims{
+				ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime * 2).Unix(),
+				Issuer:    login.GetIssuer(),
+			},
+		})
 
-	uTraits := new(login.UserTraits)
-	json.Unmarshal(i.Traits, uTraits)
-	// create jwt claims
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, login.Token{
-		Email: uTraits.Email,
-		Phone: uTraits.Phone,
-		Source: uTraits.Source,
-		HumanId: uTraits.HumanId,
-		IsStaff: uTraits.IsStaff,
-		Username: uTraits.Username,
-		IsActive: uTraits.IsActive,
-		LastName: uTraits.LastName,
-		SocialId: uTraits.SocialId,
-		FirstName: uTraits.FirstName,
-		LastLogin: uTraits.LastLogin,
-		UpdatedAt: uTraits.UpdatedAt,
-		DateJoined: uTraits.DateJoined,
-		IsVerified: uTraits.IsVerified,
-		SocialType: uTraits.SocialType,
-		IsSuperUser: uTraits.IsSuperUser,
-		PhoneNumber: uTraits.PhoneNumber,
-		OrganizationId: uTraits.OrganizationId,
-		UserId: i.NID.String(),
-		SessionId: s.ID.String(),
-		SessionToken: s.Token,
-		TokenType: "access",
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime).Unix(),
-			Issuer:    login.GetIssuer(),
-		},
-	})
-	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, login.Token{
-		Email: uTraits.Email,
-		Phone: uTraits.Phone,
-		Source: uTraits.Source,
-		HumanId: uTraits.HumanId,
-		IsStaff: uTraits.IsStaff,
-		Username: uTraits.Username,
-		IsActive: uTraits.IsActive,
-		LastName: uTraits.LastName,
-		SocialId: uTraits.SocialId,
-		FirstName: uTraits.FirstName,
-		LastLogin: uTraits.LastLogin,
-		UpdatedAt: uTraits.UpdatedAt,
-		DateJoined: uTraits.DateJoined,
-		IsVerified: uTraits.IsVerified,
-		SocialType: uTraits.SocialType,
-		IsSuperUser: uTraits.IsSuperUser,
-		PhoneNumber: uTraits.PhoneNumber,
-		OrganizationId: uTraits.OrganizationId,
-		UserId: i.NID.String(),
-		SessionId: s.ID.String(),
-		SessionToken: s.Token,
-		TokenType: "refresh",
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime * 2).Unix(),
-			Issuer:    login.GetIssuer(),
-		},
-	})
-	var wrapResponse = new(login.ResponseLogin)
-	wrapResponse.Access, _ = token.SignedString([]byte(login.GetJwtSecret()))
-	wrapResponse.Refresh, _ = refresh.SignedString([]byte(login.GetJwtSecret()))
-
-	e.d.Writer().Write(w, r, wrapResponse)
-	return nil
+		var wrapResponse = new(login.ResponseLogin)
+		wrapResponse.Access, _ = token.SignedString([]byte(login.GetJwtSecret()))
+		wrapResponse.Refresh, _ = refresh.SignedString([]byte(login.GetJwtSecret()))
+		e.d.Writer().Write(w, r, wrapResponse)
+		return nil
 }
 
 func (e *HookExecutor) PreRegistrationHook(w http.ResponseWriter, r *http.Request, a *Flow) error {

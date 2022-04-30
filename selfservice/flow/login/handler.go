@@ -759,7 +759,7 @@ type GoogleResponseProfile struct {
 	Hd            string `json:"hd"`
 }
 
-func fetchUserTokenProfileFromGoogle(p *LifepalOauthLoginPayload) (*GoogleResponseProfile, error) {
+func FetchUserTokenProfileFromGoogle(p *LifepalOauthLoginPayload) (*GoogleResponseProfile, error) {
 	var (
 		baseUrl     = "https://www.googleapis.com/oauth2/v2/userinfo"
 		accessToken = p.Identifier
@@ -783,7 +783,7 @@ var (
 	firebaseConn = new(auth.Client)
 )
 
-func getFirebaseConnection() (*auth.Client, error) {
+func GetFirebaseConnection() (*auth.Client, error) {
 	opt := option.WithCredentialsFile(getFirebaseCredential())
 	app, err := firebase.NewApp(context.Background(), nil, opt)
 	if err != nil {
@@ -799,12 +799,12 @@ func getFirebaseConnection() (*auth.Client, error) {
 
 func initConnection() *auth.Client{
 	fireConnOnce.Do(func() {
-		firebaseConn, _ = getFirebaseConnection()
+		firebaseConn, _ = GetFirebaseConnection()
 	})
 	return firebaseConn
 }
 
-func fetchUserFromFirebase(p *LifepalOauthLoginPayload) (*auth.UserRecord, error) {
+func FetchUserFromFirebase(p *LifepalOauthLoginPayload) (*auth.UserRecord, error) {
 	client := initConnection()
 	u, err := client.GetUser(context.Background(), p.Identifier)
 	if err != nil {
@@ -834,7 +834,7 @@ func (h *Handler) lifepalOauthlSubmitFlow(w http.ResponseWriter, r *http.Request
 	var i *identity.Identity
 	// if login with google
 	if LoginProvider[p.Provider] == LoginProvider["google"] {
-		userProfile, err := fetchUserTokenProfileFromGoogle(p)
+		userProfile, err := FetchUserTokenProfileFromGoogle(p)
 		if err != nil {
 			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidAccessToken))
 			return
@@ -848,7 +848,7 @@ func (h *Handler) lifepalOauthlSubmitFlow(w http.ResponseWriter, r *http.Request
 
 	// if login with firebase
 	if LoginProvider[p.Provider] == LoginProvider["firebase"] {
-		firebaseProfile, err := fetchUserFromFirebase(p)
+		firebaseProfile, err := FetchUserFromFirebase(p)
 		if err != nil {
 			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, err)
 			return

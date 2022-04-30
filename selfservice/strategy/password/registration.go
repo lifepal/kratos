@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/ory/kratos/text"
 
@@ -104,6 +105,15 @@ func (s *Strategy) Register(w http.ResponseWriter, r *http.Request, f *registrat
 
 	if err := s.validateCredentials(r.Context(), i, p.Password); err != nil {
 		return s.handleRegistrationError(w, r, f, &p, err)
+	}
+
+	// mark registration user as complete
+	// if we want to verify using email uncomment this and try to research mail slurper
+	// this remarkable verification is using password and oauth
+	for k, _ := range i.VerifiableAddresses {
+		i.VerifiableAddresses[k].Verified = true
+		i.VerifiableAddresses[k].Status = "completed"
+		i.VerifiableAddresses[k].CreatedAt = time.Now().UTC()
 	}
 
 	return nil
