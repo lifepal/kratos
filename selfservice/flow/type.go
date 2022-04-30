@@ -9,6 +9,7 @@ type Type string
 
 const (
 	TypeAPI     Type = "api"
+	TypePassword     Type = "password"
 	TypeBrowser Type = "browser"
 	TypeFirebase Type = "firebase"
 	TypeGoogle Type = "google"

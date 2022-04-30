@@ -89,7 +89,7 @@ type Flow struct {
 var MappingLoginProvider = map[flow.Type]map[string]flow.Type{
 	"api": {
 		"flow_type": flow.TypeAPI,
-		"register_provider": flow.TypeAPI,
+		"register_provider": flow.TypePassword,
 	},
 	"browser": {
 		"flow_type": flow.TypeBrowser,
