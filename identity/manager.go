@@ -89,6 +89,15 @@ func (m *Manager) requiresPrivilegedAccess(_ context.Context, original, updated 
 	return nil
 }
 
+func (m *Manager) UpdateWithPassword(ctx context.Context, updated *Identity, opts ...ManagerOption) error {
+	o := newManagerOptions(opts)
+	if err := m.validate(ctx, updated, o); err != nil {
+		return err
+	}
+
+	return m.r.IdentityPool().(PrivilegedPool).UpdateIdentity(ctx, updated)
+}
+
 func (m *Manager) Update(ctx context.Context, updated *Identity, opts ...ManagerOption) error {
 	o := newManagerOptions(opts)
 	if err := m.validate(ctx, updated, o); err != nil {

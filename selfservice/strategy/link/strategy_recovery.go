@@ -1,6 +1,7 @@
 package link
 
 import (
+	"github.com/ory/x/jsonx"
 	"net/http"
 	"net/url"
 	"time"
@@ -218,6 +219,11 @@ func (s *Strategy) Recover(w http.ResponseWriter, r *http.Request, f *recovery.F
 	}
 
 	if len(body.Token) > 0 {
+		// set new password
+		if err := jsonx.NewStrictDecoder(r.Body).Decode(body); err != nil {
+			return s.HandleRecoveryError(w, r, nil, body, err)
+		}
+
 		if err := flow.MethodEnabledAndAllowed(r.Context(), s.RecoveryStrategyID(), s.RecoveryStrategyID(), s.d); err != nil {
 			return s.HandleRecoveryError(w, r, nil, body, err)
 		}
@@ -236,6 +242,10 @@ func (s *Strategy) Recover(w http.ResponseWriter, r *http.Request, f *recovery.F
 
 	if err := flow.MethodEnabledAndAllowed(r.Context(), s.RecoveryStrategyID(), body.Method, s.d); err != nil {
 		return s.HandleRecoveryError(w, r, nil, body, err)
+	}
+
+	if len(body.Flow) == 0 {
+		body.Flow = f.ID.String()
 	}
 
 	req, err := s.d.RecoveryFlowPersister().GetRecoveryFlow(r.Context(), x.ParseUUID(body.Flow))
@@ -260,7 +270,7 @@ func (s *Strategy) Recover(w http.ResponseWriter, r *http.Request, f *recovery.F
 	}
 }
 
-func (s *Strategy) recoveryIssueSession(w http.ResponseWriter, r *http.Request, f *recovery.Flow, id *identity.Identity) error {
+func (s *Strategy) recoveryLifepalIssueSession(w http.ResponseWriter, r *http.Request, f *recovery.Flow, body *recoverySubmitPayload, id *identity.Identity) error {
 	f.UI.Messages.Clear()
 	f.State = recovery.StatePassedChallenge
 	f.SetCSRFToken(s.d.CSRFHandler().RegenerateToken(w, r))
@@ -271,46 +281,18 @@ func (s *Strategy) recoveryIssueSession(w http.ResponseWriter, r *http.Request, 
 	if err := s.d.RecoveryFlowPersister().UpdateRecoveryFlow(r.Context(), f); err != nil {
 		return s.retryRecoveryFlowWithError(w, r, flow.TypeBrowser, err)
 	}
-
-	sess, err := session.NewActiveSession(id, s.d.Config(r.Context()), time.Now().UTC(), identity.CredentialsTypeRecoveryLink, identity.AuthenticatorAssuranceLevel1)
+	hpw, err := s.d.Hasher().Generate(r.Context(), []byte(body.Password))
+	i, err := s.d.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), id.ID)
 	if err != nil {
-		return s.retryRecoveryFlowWithError(w, r, flow.TypeBrowser, err)
+		return err
+	}
+	i.SetCredentialsWithConfig("password", identity.Credentials{}, identity.CredentialsPassword{HashedPassword: string(hpw)})
+
+	if err := s.d.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		return flow.ErrUpdatePassword
 	}
 
-	if err := s.d.SessionManager().UpsertAndIssueCookie(r.Context(), w, r, sess); err != nil {
-		return s.retryRecoveryFlowWithError(w, r, flow.TypeBrowser, err)
-	}
-
-	sf, err := s.d.SettingsHandler().NewFlow(w, r, sess.Identity, flow.TypeBrowser)
-	if err != nil {
-		return s.retryRecoveryFlowWithError(w, r, flow.TypeBrowser, err)
-	}
-
-	// Take over `return_to` parameter from recovery flow
-	sfRequestURL, err := url.Parse(sf.RequestURL)
-	if err != nil {
-		return s.retryRecoveryFlowWithError(w, r, flow.TypeBrowser, err)
-	}
-	fRequestURL, err := url.Parse(f.RequestURL)
-	if err != nil {
-		return s.retryRecoveryFlowWithError(w, r, flow.TypeBrowser, err)
-	}
-	sfQuery := sfRequestURL.Query()
-	sfQuery.Set("return_to", fRequestURL.Query().Get("return_to"))
-	sfRequestURL.RawQuery = sfQuery.Encode()
-	sf.RequestURL = sfRequestURL.String()
-
-	if err := s.d.RecoveryExecutor().PostRecoveryHook(w, r, f, sess); err != nil {
-		return s.retryRecoveryFlowWithError(w, r, flow.TypeBrowser, err)
-	}
-
-	sf.UI.Messages.Set(text.NewRecoverySuccessful(time.Now().Add(s.d.Config(r.Context()).SelfServiceFlowSettingsPrivilegedSessionMaxAge())))
-	if err := s.d.SettingsFlowPersister().UpdateSettingsFlow(r.Context(), sf); err != nil {
-		return s.retryRecoveryFlowWithError(w, r, flow.TypeBrowser, err)
-	}
-
-	http.Redirect(w, r, sf.AppendTo(s.d.Config(r.Context()).SelfServiceFlowSettingsUI()).String(), http.StatusSeeOther)
-	return errors.WithStack(flow.ErrCompletedByStrategy)
+	return flow.SuccessfullyUpdatePassword
 }
 
 func (s *Strategy) recoveryUseToken(w http.ResponseWriter, r *http.Request, body *recoverySubmitPayload) error {
@@ -357,7 +339,7 @@ func (s *Strategy) recoveryUseToken(w http.ResponseWriter, r *http.Request, body
 		}
 	}
 
-	return s.recoveryIssueSession(w, r, f, recovered)
+	return s.recoveryLifepalIssueSession(w, r, f, body, recovered)
 }
 
 func (s *Strategy) retryRecoveryFlowWithMessage(w http.ResponseWriter, r *http.Request, ft flow.Type, message *text.Message) error {
@@ -496,6 +478,7 @@ type recoverySubmitPayload struct {
 	CSRFToken string `json:"csrf_token" form:"csrf_token"`
 	Flow      string `json:"flow" form:"flow"`
 	Email     string `json:"email" form:"email"`
+	Password string `json:"password" form:"email"`
 }
 
 func (s *Strategy) decodeRecovery(r *http.Request) (*recoverySubmitPayload, error) {
