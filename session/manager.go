@@ -94,6 +94,9 @@ type Manager interface {
 	// FetchFromRequest creates an HTTP session using cookies.
 	FetchFromRequest(context.Context, *http.Request) (*Session, error)
 
+	// FetchFromRequestLifepal creates an HTTP session using cookies.
+	FetchFromRequestLifepal(context.Context, *http.Request) (*Session, error)
+
 	// PurgeFromRequest removes an HTTP session.
 	PurgeFromRequest(context.Context, http.ResponseWriter, *http.Request) error
 

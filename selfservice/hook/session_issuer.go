@@ -1,6 +1,10 @@
 package hook
 
 import (
+	"encoding/json"
+	"github.com/dgrijalva/jwt-go"
+	"github.com/ory/kratos/driver/config"
+	"github.com/ory/kratos/selfservice/flow/login"
 	"net/http"
 	"time"
 
@@ -18,6 +22,7 @@ var (
 
 type (
 	sessionIssuerDependencies interface {
+		config.Provider
 		session.ManagementProvider
 		session.PersistenceProvider
 		x.WriterProvider
@@ -41,11 +46,71 @@ func (e *SessionIssuer) ExecutePostRegistrationPostPersistHook(w http.ResponseWr
 	}
 
 	if a.Type == flow.TypeAPI {
-		e.r.Writer().Write(w, r, &registration.APIFlowResponse{
-			Session:  s,
-			Token:    s.Token,
-			Identity: s.Identity,
+		oryDefaultSessionLifetime := e.r.Config(r.Context()).SessionLifespan()
+		uTraits := new(login.UserTraits)
+		json.Unmarshal(s.Identity.Traits, uTraits)
+		// create jwt claims
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, login.Token{
+			Email: uTraits.Email,
+			Phone: uTraits.Phone,
+			Source: uTraits.Source,
+			HumanId: uTraits.HumanId,
+			IsStaff: uTraits.IsStaff,
+			Username: uTraits.Username,
+			IsActive: uTraits.IsActive,
+			LastName: uTraits.LastName,
+			SocialId: uTraits.SocialId,
+			FirstName: uTraits.FirstName,
+			LastLogin: uTraits.LastLogin,
+			UpdatedAt: uTraits.UpdatedAt,
+			DateJoined: uTraits.DateJoined,
+			IsVerified: uTraits.IsVerified,
+			SocialType: uTraits.SocialType,
+			IsSuperUser: uTraits.IsSuperUser,
+			PhoneNumber: uTraits.PhoneNumber,
+			OrganizationId: uTraits.OrganizationId,
+			UserId: s.NID.String(),
+			SessionId: s.ID.String(),
+			SessionToken: s.Token,
+			TokenType: "access",
+			StandardClaims: jwt.StandardClaims{
+				ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime).Unix(),
+				Issuer:    login.GetIssuer(),
+			},
 		})
+		refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, login.Token{
+			Email: uTraits.Email,
+			Phone: uTraits.Phone,
+			Source: uTraits.Source,
+			HumanId: uTraits.HumanId,
+			IsStaff: uTraits.IsStaff,
+			Username: uTraits.Username,
+			IsActive: uTraits.IsActive,
+			LastName: uTraits.LastName,
+			SocialId: uTraits.SocialId,
+			FirstName: uTraits.FirstName,
+			LastLogin: uTraits.LastLogin,
+			UpdatedAt: uTraits.UpdatedAt,
+			DateJoined: uTraits.DateJoined,
+			IsVerified: uTraits.IsVerified,
+			SocialType: uTraits.SocialType,
+			IsSuperUser: uTraits.IsSuperUser,
+			PhoneNumber: uTraits.PhoneNumber,
+			OrganizationId: uTraits.OrganizationId,
+			UserId: s.NID.String(),
+			SessionId: s.ID.String(),
+			SessionToken: s.Token,
+			TokenType: "refresh",
+			StandardClaims: jwt.StandardClaims{
+				ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime * 2).Unix(),
+				Issuer:    login.GetIssuer(),
+			},
+		})
+
+		var wrapResponse = new(login.ResponseLogin)
+		wrapResponse.Access, _ = token.SignedString([]byte(login.GetJwtSecret()))
+		wrapResponse.Refresh, _ = refresh.SignedString([]byte(login.GetJwtSecret()))
+		e.r.Writer().Write(w, r, wrapResponse)
 		return errors.WithStack(registration.ErrHookAbortFlow)
 	}
 

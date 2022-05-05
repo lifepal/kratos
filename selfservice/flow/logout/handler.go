@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	RouteInitBrowserFlow = "/self-service/logout/browser"
-	RouteAPIFlow         = "/self-service/logout/api"
-	RouteSubmitFlow      = "/self-service/logout"
+	RouteInitBrowserFlow 	= "/self-service/logout/browser"
+	RouteAPIFlow         	= "/self-service/logout/api"
+	LifepalRouteAPILogout	= "/self-service/logout/auth"
+	RouteSubmitFlow      	= "/self-service/logout"
 )
 
 type (
@@ -52,16 +53,19 @@ func NewHandler(d handlerDependencies) *Handler {
 
 func (h *Handler) RegisterPublicRoutes(router *x.RouterPublic) {
 	h.d.CSRFHandler().IgnorePath(RouteAPIFlow)
+	h.d.CSRFHandler().IgnorePath(LifepalRouteAPILogout)
 
 	router.GET(RouteInitBrowserFlow, h.createSelfServiceLogoutUrlForBrowsers)
 	router.DELETE(RouteAPIFlow, h.submitSelfServiceLogoutFlowWithoutBrowser)
 	router.GET(RouteSubmitFlow, h.submitLogout)
+	router.DELETE(LifepalRouteAPILogout, h.lifepalSubmitSelfServiceLogoutFlowWithoutBrowser)
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.GET(RouteInitBrowserFlow, x.RedirectToPublicRoute(h.d))
 	admin.DELETE(RouteAPIFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(RouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+	admin.DELETE(LifepalRouteAPILogout, h.lifepalSubmitSelfServiceLogoutFlowWithoutBrowser)
 }
 
 // swagger:model selfServiceLogoutUrl
@@ -183,6 +187,26 @@ func (h *Handler) submitSelfServiceLogoutFlowWithoutBrowser(w http.ResponseWrite
 	}
 
 	if err := h.d.SessionPersister().RevokeSessionByToken(r.Context(), p.SessionToken); err != nil {
+		if errors.Is(err, sqlcon.ErrNoRows) {
+			h.d.Writer().WriteError(w, r, errors.WithStack(herodot.ErrForbidden.WithReason("The provided Ory Session Token could not be found, is invalid, or otherwise malformed.")))
+			return
+		}
+
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) lifepalSubmitSelfServiceLogoutFlowWithoutBrowser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	s, err := h.d.SessionManager().FetchFromRequestLifepal(r.Context(), r)
+	if err != nil {
+		h.d.Writer().WriteError(w, r, herodot.ErrUnauthorized.WithWrap(err).WithReasonf("No valid session cookie found."))
+		return
+	}
+
+	if err := h.d.SessionPersister().RevokeSessionByToken(r.Context(), s.Token); err != nil {
 		if errors.Is(err, sqlcon.ErrNoRows) {
 			h.d.Writer().WriteError(w, r, errors.WithStack(herodot.ErrForbidden.WithReason("The provided Ory Session Token could not be found, is invalid, or otherwise malformed.")))
 			return

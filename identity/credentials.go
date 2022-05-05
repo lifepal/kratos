@@ -49,6 +49,7 @@ const (
 	CredentialsTypeTOTP     CredentialsType = "totp"
 	CredentialsTypeLookup   CredentialsType = "lookup_secret"
 	CredentialsTypeWebAuthn CredentialsType = "webauthn"
+	CredentialsTypeLifepalOauth CredentialsType = "lifepal_oauth"
 )
 
 const (

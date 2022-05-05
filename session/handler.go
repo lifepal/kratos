@@ -4,10 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/ory/x/pointerx"
-
 	"github.com/gofrs/uuid"
 	"github.com/julienschmidt/httprouter"
+	"github.com/ory/x/pointerx"
 	"github.com/pkg/errors"
 
 	"github.com/ory/x/decoderx"
@@ -47,6 +46,7 @@ func NewHandler(
 
 const (
 	RouteCollection = "/sessions"
+	RouteIsTokenValid     = RouteCollection + "/valid"
 	RouteWhoami     = RouteCollection + "/whoami"
 	RouteSession    = RouteCollection + "/:id"
 )
@@ -69,6 +69,7 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	for _, m := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut} {
 		// Redirect to public endpoint
 		admin.Handle(m, RouteWhoami, x.RedirectToPublicRoute(h.r))
+		admin.Handle(m, RouteIsTokenValid, h.isSessionIsValid)
 	}
 }
 
@@ -76,12 +77,14 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	// We need to completely ignore the whoami/logout path so that we do not accidentally set
 	// some cookie.
 	h.r.CSRFHandler().IgnorePath(RouteWhoami)
+	h.r.CSRFHandler().IgnorePath(RouteIsTokenValid)
 	h.r.CSRFHandler().IgnorePath(RouteCollection)
 	h.r.CSRFHandler().IgnoreGlob(RouteCollection + "/*")
 	h.r.CSRFHandler().IgnoreGlob(AdminRouteIdentity + "/*/sessions")
 
 	for _, m := range []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodConnect, http.MethodOptions, http.MethodTrace} {
 		public.Handle(m, RouteWhoami, h.whoami)
+		public.Handle(m, RouteIsTokenValid, x.RedirectToAdminRoute(h.r))
 	}
 
 	public.DELETE(RouteCollection, h.revokeSessions)
@@ -107,6 +110,35 @@ type toSession struct {
 	//
 	// in: header
 	Cookie string `json:"Cookie"`
+}
+
+func (h *Handler) isSessionIsValid(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	s, err := h.r.SessionManager().FetchFromRequestLifepal(r.Context(), r)
+	if err != nil {
+		h.r.Audit().WithRequest(r).WithError(err).Info("No valid session cookie found.")
+		h.r.Writer().WriteError(w, r, herodot.ErrUnauthorized.WithWrap(err).WithReasonf("No valid session cookie found."))
+		return
+	}
+
+	var aalErr *ErrAALNotSatisfied
+	c := h.r.Config(r.Context())
+	if err := h.r.SessionManager().DoesSessionSatisfy(r, s, c.SessionWhoAmIAAL()); errors.As(err, &aalErr) {
+		h.r.Audit().WithRequest(r).WithError(err).Info("Session was found but AAL is not satisfied for calling this endpoint.")
+		h.r.Writer().WriteError(w, r, err)
+		return
+	} else if err != nil {
+		h.r.Audit().WithRequest(r).WithError(err).Info("No valid session cookie found.")
+		h.r.Writer().WriteError(w, r, herodot.ErrUnauthorized.WithWrap(err).WithReasonf("Unable to determine AAL."))
+		return
+	}
+
+	// s.Devices = nil
+	s.Identity = s.Identity.CopyWithoutCredentials()
+
+	// Set userId as the X-Kratos-Authenticated-Identity-Id header.
+	w.Header().Set("X-Kratos-Authenticated-Identity-Id", s.Identity.ID.String())
+
+	h.r.Writer().Write(w, r, s)
 }
 
 // swagger:route GET /sessions/whoami v0alpha2 toSession

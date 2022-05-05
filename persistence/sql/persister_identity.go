@@ -496,6 +496,56 @@ func (p *Persister) GetIdentity(ctx context.Context, id uuid.UUID) (*identity.Id
 	return &i, nil
 }
 
+func (p *Persister) GetIdentityConfidentialByEmail(ctx context.Context, email string) (*identity.Identity, error) {
+	var i identity.Identity
+
+	nid := corp.ContextualizeNID(ctx, p.nid)
+	if err := p.GetConnection(ctx).Where("traits->>'email' = ? AND nid = ?", email, nid).First(&i); err != nil {
+		return nil, sqlcon.HandleError(err)
+	}
+
+	i.Credentials = nil
+
+	if err := p.findVerifiableAddresses(ctx, &i); err != nil {
+		return nil, sqlcon.HandleError(err)
+	}
+
+	if err := p.findRecoveryAddresses(ctx, &i); err != nil {
+		return nil, sqlcon.HandleError(err)
+	}
+
+	if err := p.injectTraitsSchemaURL(ctx, &i); err != nil {
+		return nil, err
+	}
+
+	return &i, nil
+}
+
+func (p *Persister) GetIdentityConfidentialByPhoneNumber(ctx context.Context, phoneNumber string) (*identity.Identity, error) {
+	var i identity.Identity
+
+	nid := corp.ContextualizeNID(ctx, p.nid)
+	if err := p.GetConnection(ctx).Where("traits->>'phone' = ? AND nid = ?", phoneNumber, nid).First(&i); err != nil {
+		return nil, sqlcon.HandleError(err)
+	}
+
+	i.Credentials = nil
+
+	if err := p.findVerifiableAddresses(ctx, &i); err != nil {
+		return nil, sqlcon.HandleError(err)
+	}
+
+	if err := p.findRecoveryAddresses(ctx, &i); err != nil {
+		return nil, sqlcon.HandleError(err)
+	}
+
+	if err := p.injectTraitsSchemaURL(ctx, &i); err != nil {
+		return nil, err
+	}
+
+	return &i, nil
+}
+
 func (p *Persister) GetIdentityConfidential(ctx context.Context, id uuid.UUID) (*identity.Identity, error) {
 	var i identity.Identity
 
