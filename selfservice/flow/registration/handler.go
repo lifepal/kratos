@@ -608,6 +608,11 @@ func (h *Handler) lifepalOauthSubmitFlow(w http.ResponseWriter, r *http.Request,
 			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(login.ErrInvalidAccessToken))
 			return
 		}
+		// if id is empty then this token is expired
+		if len(userProfile.Id) == 0 {
+			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(login.ErrExpiredAccessToken))
+			return
+		}
 		p.Property.FirstName, p.Property.LastName = getFirstNameLastName(userProfile.Name)
 		p.Property.Email = userProfile.Email
 	}
