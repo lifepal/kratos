@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"encoding/json"
+
 	"net/http"
 	"time"
 
@@ -107,7 +108,7 @@ type FilterIdentityBody struct {
 	Key string `json:"key"`
 	Value string `json:"value"`
 	Values []string `json:"values"`
-	Comparison string `json:"comparison"`
+	Comparison ComparisonType `json:"comparison"`
 }
 
 // swagger:route POST /admin/identities-filter v0alpha2 adminListIdentitiesFilter

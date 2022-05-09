@@ -32,15 +32,15 @@ var _ identity.Pool = new(Persister)
 var _ identity.PrivilegedPool = new(Persister)
 
 var (
-	Comparison = map[string]string{
-		"eq":   "=",
-		"gt":   ">",
-		"lt":   "<",
-		"gte":  ">=",
-		"lte":  "<=",
-		"ne":   "<>",
-		"in":   "in",
-		"like": "like",
+	Comparison = map[identity.ComparisonType]string{
+		identity.ComparisonEqual:            "=",
+		identity.ComparisonGreaterThan:      ">",
+		identity.ComparisonLessThan:         "<",
+		identity.ComparisonGreaterThanEqual: ">=",
+		identity.ComparisonLessThanEqual:    "<=",
+		identity.ComparisonNotEqual:         "<>",
+		identity.ComparisonIn:               "in",
+		identity.ComparisonLike:             "like",
 	}
 	// ConnectionDialect format will be (key -> field -> comparison -> value)
 	ConnectionDialect = map[string]string{
@@ -297,15 +297,15 @@ func (p *Persister) constructIdentityFilter(_ context.Context, filters []*identi
 	for k, v := range filters {
 		// if filter is doesn't match with map comparison fallback to equals
 		if _, ok := Comparison[v.Comparison]; !ok {
-			filters[k].Comparison = Comparison["eq"]
+			filters[k].Comparison = identity.ComparisonEqual
 			continue
 		}
 		// if query comparison is like then add %keyName%
-		if v.Comparison == Comparison["like"] {
+		if v.Comparison == identity.ComparisonLike {
 			filters[k].Value = "'%" + v.Value + "%'"
 		}
 
-		filters[k].Comparison = Comparison[v.Comparison]
+		filters[k].Comparison = identity.ComparisonType(Comparison[v.Comparison])
 	}
 	return filters, nil
 }
@@ -333,14 +333,14 @@ func (p *Persister) buildIdentityFilterScope(ctx context.Context, filters []*ide
 			}
 
 			// if query is where in
-			if v.Comparison == Comparison["in"] {
+			if v.Comparison == identity.ComparisonIn {
 				qFormat := fmt.Sprintf("%s %s (?)", v.Key, v.Comparison)
 				q = q.Where(qFormat, v.Values)
 				continue
 			}
 
 			// if query comparison in like then no need to add query param
-			if v.Comparison == Comparison["like"] {
+			if v.Comparison == identity.ComparisonLike {
 				qFormat := fmt.Sprintf("%s %s %s", v.Key, v.Comparison, v.Value)
 				q = q.Where(qFormat)
 				continue
