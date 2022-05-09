@@ -33,6 +33,7 @@ const (
 	RouteGetFlow         = "/self-service/recovery/flows"
 
 	RouteSubmitFlow = "/self-service/recovery"
+	LifepalRouteSubmitFlow = "/self-service/recovery-account"
 )
 
 type (
@@ -64,6 +65,7 @@ func NewHandler(d handlerDependencies) *Handler {
 func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	h.d.CSRFHandler().IgnorePath(RouteInitAPIFlow)
 	h.d.CSRFHandler().IgnorePath(RouteSubmitFlow)
+	h.d.CSRFHandler().IgnorePath(LifepalRouteSubmitFlow)
 
 	redirect := session.RedirectOnAuthenticated(h.d)
 	public.GET(RouteInitBrowserFlow, h.d.SessionHandler().IsNotAuthenticated(h.initBrowserFlow, func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -81,6 +83,9 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 
 	public.GET(RouteSubmitFlow, h.submitFlow)
 	public.POST(RouteSubmitFlow, h.submitFlow)
+
+	public.POST(LifepalRouteSubmitFlow, h.lifepalSubmitFlow)
+	public.GET(LifepalRouteSubmitFlow, h.lifepalSubmitFlow)
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
@@ -89,6 +94,9 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.GET(RouteGetFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(RouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 	admin.POST(RouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+
+	admin.POST(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
+	admin.GET(LifepalRouteSubmitFlow, x.RedirectToPublicRoute(h.d))
 }
 
 // swagger:route GET /self-service/recovery/api v0alpha2 initializeSelfServiceRecoveryFlowWithoutBrowser
@@ -374,6 +382,88 @@ func (h *Handler) submitFlow(w http.ResponseWriter, r *http.Request, ps httprout
 	var found bool
 	for _, ss := range h.d.AllRecoveryStrategies() {
 		err := ss.Recover(w, r, f)
+		if errors.Is(err, flow.ErrStrategyNotResponsible) {
+			continue
+		} else if errors.Is(err, flow.ErrCompletedByStrategy) {
+			return
+		} else if err != nil {
+			h.d.RecoveryFlowErrorHandler().WriteFlowError(w, r, f, ss.RecoveryNodeGroup(), err)
+			return
+		}
+
+		found = true
+		g = ss.RecoveryNodeGroup()
+		break
+	}
+
+	if !found {
+		h.d.RecoveryFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewNoRecoveryStrategyResponsible()))
+		return
+	}
+
+	if f.Type == flow.TypeBrowser && !x.IsJSONRequest(r) {
+		http.Redirect(w, r, f.AppendTo(h.d.Config(r.Context()).SelfServiceFlowRecoveryUI()).String(), http.StatusSeeOther)
+		return
+	}
+
+	updatedFlow, err := h.d.RecoveryFlowPersister().GetRecoveryFlow(r.Context(), f.ID)
+	if err != nil {
+		h.d.RecoveryFlowErrorHandler().WriteFlowError(w, r, f, g, err)
+		return
+	}
+
+	h.d.Writer().Write(w, r, updatedFlow)
+}
+
+
+func (h *Handler) lifepalSubmitFlow(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	if !h.d.Config(r.Context()).SelfServiceFlowRecoveryEnabled() {
+		h.d.SelfServiceErrorManager().Forward(r.Context(), w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("Recovery is not allowed because it was disabled.")))
+		return
+	}
+
+	req, err := NewFlow(h.d.Config(r.Context()), h.d.Config(r.Context()).SelfServiceFlowRecoveryRequestLifespan(), h.d.GenerateCSRFToken(r), r, h.d.RecoveryStrategies(r.Context()), flow.TypeAPI)
+	if err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.d.RecoveryFlowPersister().CreateRecoveryFlow(r.Context(), req); err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+
+	f, err := h.d.RecoveryFlowPersister().GetRecoveryFlow(r.Context(), req.ID)
+	if errors.Is(err, sqlcon.ErrNoRows) {
+		h.d.RecoveryFlowErrorHandler().WriteFlowError(w, r, nil, node.DefaultGroup, errors.WithStack(herodot.ErrNotFound.WithReasonf("The recovery request could not be found. Please restart the flow.")))
+		return
+	} else if err != nil {
+		h.d.RecoveryFlowErrorHandler().WriteFlowError(w, r, nil, node.DefaultGroup, err)
+		return
+	}
+
+	if err := f.Valid(); err != nil {
+		h.d.RecoveryFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	var g node.UiNodeGroup
+	var found bool
+	for _, ss := range h.d.AllRecoveryStrategies() {
+		err := ss.Recover(w, r, f)
+		if errors.Is(err, flow.SuccessfullyUpdatePassword) {
+			h.d.Writer().Write(w, r, map[string]interface{}{
+				"status": 200,
+				"message": "successfully updated password",
+			})
+			return
+		}
+
+		if errors.Is(err, flow.ErrUpdatePassword) {
+			h.d.RecoveryFlowErrorHandler().WriteFlowError(w, r, f, ss.RecoveryNodeGroup(), err)
+			return
+		}
+
 		if errors.Is(err, flow.ErrStrategyNotResponsible) {
 			continue
 		} else if errors.Is(err, flow.ErrCompletedByStrategy) {
