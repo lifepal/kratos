@@ -30,6 +30,9 @@ var (
 
 	// ErrInvalidAccessToken Google user is not found
 	ErrInvalidAccessToken = herodot.ErrUnauthorized.WithID(text.ErrIDSessionRequiredForHigherAAL).WithError("invalid token").WithReason("This token might be expired or invalid")
+
+	// ErrInvalidProvider provider is not found
+	ErrInvalidProvider = herodot.ErrUnauthorized.WithID(text.ErrIDSessionRequiredForHigherAAL).WithError("invalid provider").WithReason("This provider might is invalid")
 )
 
 type (

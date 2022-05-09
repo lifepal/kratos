@@ -1,10 +1,15 @@
 package login
 
 import (
+	"context"
 	"encoding/json"
+	firebase "firebase.google.com/go/v4"
+	"firebase.google.com/go/v4/auth"
 	"fmt"
 	"github.com/ory/x/jsonx"
+	"google.golang.org/api/option"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -39,10 +44,15 @@ const (
 
 	RouteGetFlow = "/self-service/login/flows"
 
-	RouteSubmitFlow        = "/self-service/login"
-	LifepalRouteSubmitFlow = "/self-service/login/auth"
+	RouteSubmitFlow             = "/self-service/login"
+	LifepalRouteSubmitFlow      = "/self-service/login/auth"
 	LifepalOauthRouteSubmitFlow = "/self-service/login/oauth"
 )
+
+var LoginProvider = map[string]string{
+	"google":   "google",
+	"firebase": "firebase",
+}
 
 type (
 	handlerDependencies interface {
@@ -729,27 +739,30 @@ continueLogin:
 }
 
 type LifepalOauthLoginPayload struct {
-	AuthCode string `json:"auth_code"`
-	RedirectUri string `json:"redirect_uri"`
-	Provider string `json:"provider"`
+	// identifier can be any code or id
+	// if login with google then identifier will as access token
+	// if login with firebase then identifier will as firebase user id
+	Identifier  string `json:"identifier,omitempty"`
+	RedirectUri string `json:"redirect_uri,omitempty"`
+	Provider    string `json:"provider,omitempty"`
 }
 
 type GoogleResponseProfile struct {
-	Id string `json:"id"`
-	Email string `json:"email"`
-	VerifiedEmail bool `json:"verified_email"`
-	Name string `json:"name"`
-	GivenName string `json:"given_name"`
-	FamilyName string `json:"family_name"`
-	Picture string `json:"picture"`
-	Locale string `json:"locale"`
-	Hd string `json:"hd"`
+	Id            string `json:"id"`
+	Email         string `json:"email"`
+	VerifiedEmail bool   `json:"verified_email"`
+	Name          string `json:"name"`
+	GivenName     string `json:"given_name"`
+	FamilyName    string `json:"family_name"`
+	Picture       string `json:"picture"`
+	Locale        string `json:"locale"`
+	Hd            string `json:"hd"`
 }
 
-func fetchUserProfileFromToken(p *LifepalOauthLoginPayload) (*GoogleResponseProfile, error){
+func fetchUserTokenProfileFromGoogle(p *LifepalOauthLoginPayload) (*GoogleResponseProfile, error) {
 	var (
-		baseUrl = "https://www.googleapis.com/oauth2/v2/userinfo"
-		accessToken = p.AuthCode
+		baseUrl     = "https://www.googleapis.com/oauth2/v2/userinfo"
+		accessToken = p.Identifier
 	)
 	resp, err := http.Get(fmt.Sprintf(`%s?access_token=%s`, baseUrl, accessToken))
 	if err != nil {
@@ -765,22 +778,86 @@ func fetchUserProfileFromToken(p *LifepalOauthLoginPayload) (*GoogleResponseProf
 	return structResp, nil
 }
 
+var (
+	fireConnOnce sync.Once
+	firebaseConn = new(auth.Client)
+)
+
+func getFirebaseConnection() (*auth.Client, error) {
+	opt := option.WithCredentialsFile(getFirebaseCredential())
+	app, err := firebase.NewApp(context.Background(), nil, opt)
+	if err != nil {
+		return nil, errors.WithStack(errors.New(fmt.Sprintf("error initializing app: %v\n", err)))
+	}
+	// Access Auth service from default app
+	client, err := app.Auth(context.Background())
+	if err != nil {
+		return nil, errors.WithStack(errors.New(fmt.Sprintf("error getting Auth client: %v\n", err)))
+	}
+	return client, nil
+}
+
+func initConnection() *auth.Client{
+	fireConnOnce.Do(func() {
+		firebaseConn, _ = getFirebaseConnection()
+	})
+	return firebaseConn
+}
+
+func fetchUserFromFirebase(p *LifepalOauthLoginPayload) (*auth.UserRecord, error) {
+	client := initConnection()
+	u, err := client.GetUser(context.Background(), p.Identifier)
+	if err != nil {
+		return nil, errors.WithStack(errors.New(fmt.Sprintf("error getting user %s: %v\n", p.Identifier, err)))
+	}
+
+	// check if phone number is valid
+	if u.PhoneNumber[:3] != "+62" {
+		return nil, errors.WithStack(errors.New("Only support for indonesian number"))
+	}
+	return u, nil
+}
+
 func (h *Handler) lifepalOauthlSubmitFlow(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	var p = new(LifepalOauthLoginPayload)
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
 		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
 	}
-	userProfile, err := fetchUserProfileFromToken(p)
-	if err != nil {
-		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidAccessToken))
+
+	//check if provider is exists
+	if _, ok := LoginProvider[p.Provider]; !ok {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidProvider))
 		return
 	}
+
 	var i *identity.Identity
-	i, err = h.d.PrivilegedIdentityPool().GetIdentityConfidentialByEmail(r.Context(), userProfile.Email)
-	if err != nil {
-		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidAccessToken))
-		return
+	// if login with google
+	if LoginProvider[p.Provider] == LoginProvider["google"] {
+		userProfile, err := fetchUserTokenProfileFromGoogle(p)
+		if err != nil {
+			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidAccessToken))
+			return
+		}
+		i, err = h.d.PrivilegedIdentityPool().GetIdentityConfidentialByEmail(r.Context(), userProfile.Email)
+		if err != nil {
+			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidAccessToken))
+			return
+		}
+	}
+
+	// if login with firebase
+	if LoginProvider[p.Provider] == LoginProvider["firebase"] {
+		firebaseProfile, err := fetchUserFromFirebase(p)
+		if err != nil {
+			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, err)
+			return
+		}
+		i, err = h.d.PrivilegedIdentityPool().GetIdentityConfidentialByPhoneNumber(r.Context(), firebaseProfile.PhoneNumber)
+		if err != nil {
+			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidAccessToken))
+			return
+		}
 	}
 
 	f, err := h.NewLoginFlow(w, r, flow.TypeAPI)
@@ -820,14 +897,13 @@ func (h *Handler) lifepalOauthlSubmitFlow(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	sess.AMR = append(sess.AMR, session.AuthenticationMethod{Method: identity.CredentialsType(p.Provider), AAL: identity.AuthenticatorAssuranceLevel1, CompletedAt: time.Now().UTC()})
-
+	// add manual login provider in database
+	sess.AMR = append(sess.AMR, session.AuthenticationMethod{Method: identity.CredentialsType(LoginProvider[p.Provider]), AAL: identity.AuthenticatorAssuranceLevel1, CompletedAt: time.Now().UTC()})
 	if err := h.d.LoginHookExecutor().LifepallOauthPostLoginHook(w, r, f, i, sess); err != nil {
 		if errors.Is(err, ErrAddressNotVerified) {
 			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewAddressNotVerifiedError()))
 			return
 		}
-
 		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
 		return
 	}

@@ -17,3 +17,12 @@ func getIssuer() string {
 	}
 	return jwtissuer
 }
+
+func getFirebaseCredential() string {
+	var firebaseCred = os.Getenv("FIREBASE_CREDENTIAL_FILE")
+	if len(firebaseCred) == 0{
+		// example: path/to/serviceAccountKey.json
+		return ""
+	}
+	return firebaseCred
+}
