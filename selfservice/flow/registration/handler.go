@@ -642,9 +642,13 @@ func (h *Handler) lifepalOauthSubmitFlow(w http.ResponseWriter, r *http.Request,
 		Via: "mail",
 	})
 
-
 	i.Traits, _ = json.Marshal(p.Property)
-	if err := h.d.PrivilegedIdentityPool().CreateIdentity(r.Context(), i); err != nil {
+	if err := h.d.IdentityValidator().Validate(r.Context(), i); err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, err)
+		return
+		// We're now creating the identity because any of the hooks could trigger a "redirect" or a "session" which
+		// would imply that the identity has to exist already.
+	} else if err := h.d.PrivilegedIdentityPool().CreateIdentity(r.Context(), i); err != nil {
 		if errors.Is(err, sqlcon.ErrUniqueViolation) {
 			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(schema.NewDuplicateCredentialsError()))
 			return

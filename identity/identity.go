@@ -39,6 +39,18 @@ const (
 	StateInactive State = "inactive"
 )
 
+type ComparisonType string
+const (
+	ComparisonEqual       ComparisonType = "eq"
+	ComparisonGreaterThan ComparisonType = "gt"
+	ComparisonLessThan         ComparisonType = "lt"
+	ComparisonGreaterThanEqual ComparisonType = "gte"
+	ComparisonLessThanEqual    ComparisonType = "lte"
+	ComparisonNotEqual         ComparisonType = "ne"
+	ComparisonIn ComparisonType = "in"
+	ComparisonLike ComparisonType = "like"
+)
+
 func (lt State) IsValid() error {
 	switch lt {
 	case StateActive, StateInactive:
