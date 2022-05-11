@@ -82,6 +82,27 @@ type Flow struct {
 	// CSRFToken contains the anti-csrf token associated with this flow. Only set for browser flows.
 	CSRFToken string    `json:"-" db:"csrf_token"`
 	NID       uuid.UUID `json:"-"  faker:"-" db:"nid"`
+
+	RegisterProvider flow.Type `json:"register_provider" db:"register_provider"`
+}
+
+var MappingLoginProvider = map[flow.Type]map[string]flow.Type{
+	"api": {
+		"flow_type": flow.TypeAPI,
+		"register_provider": flow.TypePassword,
+	},
+	"browser": {
+		"flow_type": flow.TypeBrowser,
+		"register_provider": flow.TypeBrowser,
+	},
+	"firebase": {
+		"flow_type": flow.TypeAPI,
+		"register_provider": flow.TypeFirebase,
+	},
+	"google": {
+		"flow_type": flow.TypeAPI,
+		"register_provider": flow.TypeGoogle,
+	},
 }
 
 func NewFlow(conf *config.Config, exp time.Duration, csrf string, r *http.Request, ft flow.Type) (*Flow, error) {
@@ -109,9 +130,10 @@ func NewFlow(conf *config.Config, exp time.Duration, csrf string, r *http.Reques
 			Method: "POST",
 			Action: flow.AppendFlowTo(urlx.AppendPaths(conf.SelfPublicURL(), RouteSubmitFlow), id).String(),
 		},
-		CSRFToken:       csrf,
-		Type:            ft,
-		InternalContext: []byte("{}"),
+		CSRFToken:        csrf,
+		Type:             MappingLoginProvider[ft]["flow_type"],
+		RegisterProvider: MappingLoginProvider[ft]["register_provider"],
+		InternalContext:  []byte("{}"),
 	}, nil
 }
 

@@ -11,4 +11,5 @@ CREATE TABLE "_selfservice_registration_flows_tmp" (
 "ui" TEXT,
 "nid" char(36),
 "internal_context" TEXT NOT NULL
+"register_provider" char(36)
 );

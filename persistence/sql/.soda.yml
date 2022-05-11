@@ -5,7 +5,7 @@ sqlite:
   url: sqlite://a/b
 
 postgres:
-  url: postgres://a/b
+  url: postgres://postgres:rahasia@localhost:5432/kratos-test?sslmode=disable&max_conns=20&max_idle_conns=4
 
 mysql:
   url: mysql://tcp(a)/b?parseTime=true&multiStatements=true

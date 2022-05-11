@@ -273,7 +273,7 @@ func (e *HookExecutor) LifepallOauthPostLoginHook(w http.ResponseWriter, r *http
 		TokenType: "access",
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime).Unix(),
-			Issuer:    getIssuer(),
+			Issuer:    GetIssuer(),
 		},
 	})
 	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, Token{
@@ -301,7 +301,7 @@ func (e *HookExecutor) LifepallOauthPostLoginHook(w http.ResponseWriter, r *http
 		TokenType: "refresh",
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime * 2).Unix(),
-			Issuer:    getIssuer(),
+			Issuer:    GetIssuer(),
 		},
 	})
 
@@ -321,8 +321,8 @@ func (e *HookExecutor) LifepallOauthPostLoginHook(w http.ResponseWriter, r *http
 	}
 
 	var wrapResponse = new(ResponseLogin)
-	wrapResponse.Access, _ = token.SignedString([]byte(getJwtSecret()))
-	wrapResponse.Refresh, _ = refresh.SignedString([]byte(getJwtSecret()))
+	wrapResponse.Access, _ = token.SignedString([]byte(GetJwtSecret()))
+	wrapResponse.Refresh, _ = refresh.SignedString([]byte(GetJwtSecret()))
 
 	e.d.Writer().Write(w, r, wrapResponse)
 	return nil
@@ -364,7 +364,7 @@ func (e *HookExecutor) LifepallPostLoginHook(w http.ResponseWriter, r *http.Requ
 		TokenType: "access",
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime).Unix(),
-			Issuer:    getIssuer(),
+			Issuer:    GetIssuer(),
 		},
 	})
 	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, Token{
@@ -392,7 +392,7 @@ func (e *HookExecutor) LifepallPostLoginHook(w http.ResponseWriter, r *http.Requ
 		TokenType: "refresh",
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().UTC().Add(oryDefaultSessionLifetime * 2).Unix(),
-			Issuer:    getIssuer(),
+			Issuer:    GetIssuer(),
 		},
 	})
 
@@ -412,8 +412,8 @@ func (e *HookExecutor) LifepallPostLoginHook(w http.ResponseWriter, r *http.Requ
 	}
 
 	var wrapResponse = new(ResponseLogin)
-	wrapResponse.Access, _ = token.SignedString([]byte(getJwtSecret()))
-	wrapResponse.Refresh, _ = refresh.SignedString([]byte(getJwtSecret()))
+	wrapResponse.Access, _ = token.SignedString([]byte(GetJwtSecret()))
+	wrapResponse.Refresh, _ = refresh.SignedString([]byte(GetJwtSecret()))
 
 	e.d.Writer().Write(w, r, wrapResponse)
 	return nil
