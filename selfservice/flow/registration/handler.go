@@ -583,7 +583,7 @@ type LifepalOauthRegisterPayload struct {
 	// if login with google then identifier will as access token
 	// if login with firebase then identifier will as firebase user id
 	Identifier  string `json:"identifier,omitempty"`
-	Provider    string `json:"provider,omitempty"`
+	Provider    string `json:"method,omitempty"`
 	Property LifepalRegisterPropertyPayload
 }
 
