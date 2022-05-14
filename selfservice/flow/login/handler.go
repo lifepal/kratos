@@ -743,8 +743,8 @@ type LifepalOauthLoginPayload struct {
 	// if login with google then identifier will as access token
 	// if login with firebase then identifier will as firebase user id
 	Identifier  string `json:"identifier,omitempty"`
-	RedirectUri string `json:"redirect_uri,omitempty"`
-	Provider    string `json:"provider,omitempty"`
+	Provider    string `json:"method,omitempty"`
+	Password 	string `json:"password,omitempty"`
 }
 
 type GoogleResponseProfile struct {
