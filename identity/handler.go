@@ -95,6 +95,7 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)
+	admin.PUT(RouteItem, h.update)
 	admin.DELETE(RouteItem, h.delete)
 
 	admin.POST(RouteCollection, h.create)
