@@ -19,10 +19,10 @@ func GetIssuer() string {
 }
 
 func getFirebaseCredential() string {
-	var firebaseCred = os.Getenv("FIREBASE_CREDENTIAL_FILE")
+	var firebaseCred = os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 	if len(firebaseCred) == 0{
 		// example: path/to/serviceAccountKey.json
-		return ""
+		return "service-account-file.json"
 	}
 	return firebaseCred
 }

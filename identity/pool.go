@@ -25,6 +25,12 @@ type (
 
 		// FindRecoveryAddressByValue returns a matching address or sql.ErrNoRows if no address could be found.
 		FindRecoveryAddressByValue(ctx context.Context, via RecoveryAddressType, address string) (*RecoveryAddress, error)
+
+		// ListOrganizations lists all identities in the store given the page and itemsPerPage.
+		ListOrganizations(ctx context.Context, page, itemsPerPage int) ([]Organization, error)
+
+		// CountOrganizations counts the number of identities in the store.
+		CountOrganizations(ctx context.Context) (int64, error)
 	}
 
 	PoolProvider interface {
@@ -71,5 +77,17 @@ type (
 		// ListRecoveryAddresses lists all tracked recovery addresses.
 		ListRecoveryAddresses(ctx context.Context, page, itemsPerPage int) ([]RecoveryAddress, error)
 
+		// CreateOrganization creates an identity. It is capable of setting credentials without encoding. Will return an error
+		// if identity exists, backend connectivity is broken, or trait validation fails.
+		CreateOrganization(context.Context, *Organization) error
+
+		// UpdateOrganization updates an identity including its confidential / privileged / protected data.
+		UpdateOrganization(context.Context, *Organization) error
+
+		// GetOrganizationDetail returns the identity including it's raw credentials. This should only be used internally.
+		GetOrganizationDetail(context.Context, uuid.UUID) (*Organization, error)
+
+		// DeleteOrganization ...
+		DeleteOrganization(context.Context, uuid.UUID) error
 	}
 )

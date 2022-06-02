@@ -27,6 +27,8 @@ import (
 
 const (
 	RouteCollectionFilter = "/identities-filter"
+	RouteOrganizationCollection = "/organization"
+	RouteOrganizationCollectionItem = RouteOrganizationCollection + "/:id"
 	RouteCollection = "/identities"
 	RouteItem = RouteCollection + "/:id"
 )
@@ -75,16 +77,35 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	public.DELETE(x.AdminPrefix+RouteItem, x.RedirectToAdminRoute(h.r))
 	public.POST(x.AdminPrefix+RouteCollection, x.RedirectToAdminRoute(h.r))
 	public.PUT(x.AdminPrefix+RouteItem, x.RedirectToAdminRoute(h.r))
+
+
+	public.GET(RouteOrganizationCollection, x.RedirectToAdminRoute(h.r))
+	public.GET(RouteOrganizationCollectionItem, x.RedirectToAdminRoute(h.r))
+	public.DELETE(RouteOrganizationCollectionItem, x.RedirectToAdminRoute(h.r))
+	public.POST(RouteOrganizationCollection, x.RedirectToAdminRoute(h.r))
+	public.PUT(RouteOrganizationCollectionItem, x.RedirectToAdminRoute(h.r))
+
+	public.GET(x.AdminPrefix+RouteOrganizationCollection, x.RedirectToAdminRoute(h.r))
+	public.GET(x.AdminPrefix+RouteOrganizationCollectionItem, x.RedirectToAdminRoute(h.r))
+	public.DELETE(x.AdminPrefix+RouteOrganizationCollectionItem, x.RedirectToAdminRoute(h.r))
+	public.POST(x.AdminPrefix+RouteOrganizationCollection, x.RedirectToAdminRoute(h.r))
+	public.PUT(x.AdminPrefix+RouteOrganizationCollectionItem, x.RedirectToAdminRoute(h.r))
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)
+	admin.PUT(RouteItem, h.update)
 	admin.DELETE(RouteItem, h.delete)
 
 	admin.POST(RouteCollection, h.create)
 	admin.POST(RouteCollectionFilter, h.listFiltered)
-	admin.PUT(RouteItem, h.update)
+
+	admin.GET(RouteOrganizationCollection, h.listOrganization)
+	admin.POST(RouteOrganizationCollection, h.createOrganization)
+	admin.GET(RouteOrganizationCollectionItem, h.getOrganization)
+	admin.DELETE(RouteOrganizationCollectionItem, h.deleteOrganization)
+	admin.PUT(RouteOrganizationCollectionItem, h.updateOrganization)
 }
 
 // A list of identities.
@@ -605,4 +626,162 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request, ps httprouter.P
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+
+
+func (h *Handler) listOrganization(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	page, itemsPerPage := x.ParsePagination(r)
+	is, err := h.r.IdentityPool().ListOrganizations(r.Context(), page, itemsPerPage)
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	total, err := h.r.IdentityPool().CountOrganizations(r.Context())
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	x.PaginationHeader(w, urlx.AppendPaths(h.r.Config(r.Context()).SelfAdminURL(), RouteOrganizationCollection), total, page, itemsPerPage)
+	h.r.Writer().Write(w, r, is)
+}
+
+type AdminCreateOrganizationBody struct {
+	// Logo is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	Logo string `json:"logo"`
+
+	// Name is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	Name string `json:"name"`
+
+	// Slug is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	Slug string `json:"slug"`
+
+	// LeadsOwner is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	LeadsOwner string `json:"leads_owner"`
+
+	// EnableQa is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	EnableQa bool `json:"enable_qa"`
+
+	// IsActive is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	IsActive bool `json:"is_active"`
+
+	// ShowCommission is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	ShowCommission bool `json:"show_commission"`
+
+	// ShowMemberStructure is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	ShowMemberStructure bool `json:"show_member_structure"`
+
+	// UseSimpleLeadStatus is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	UseSimpleLeadStatus bool `json:"use_simple_lead_status"`
+
+	// ShowLevelInDashboard is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	ShowLevelInDashboard bool `json:"show_level_in_dashboard"`
+
+	// ShowShortcutsInDashboard is the ID of the JSON Schema to be used for validating the identity's traits.
+	//
+	ShowShortcutsInDashboard bool `json:"show_shortcuts_in_dashboard"`
+
+}
+
+func (h *Handler) createOrganization(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var cr AdminCreateOrganizationBody
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&cr); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i := &Organization{
+		Logo:                     cr.Logo,
+		Name:                     cr.Name,
+		Slug:                     cr.Slug,
+		LeadsOwner:               cr.LeadsOwner,
+		EnableQa:                 cr.EnableQa,
+		IsActive:                 cr.IsActive,
+		ShowCommission:           cr.ShowCommission,
+		ShowMemberStructure:      cr.ShowMemberStructure,
+		UseSimpleLeadStatus:      cr.UseSimpleLeadStatus,
+		ShowLevelInDashboard:     cr.ShowLevelInDashboard,
+		ShowShortcutsInDashboard: cr.ShowShortcutsInDashboard,
+	}
+
+	if err :=h.r.IdentityPool().(PrivilegedPool).CreateOrganization(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	h.r.Writer().WriteCreated(w, r,
+		urlx.AppendPaths(
+			h.r.Config(r.Context()).SelfAdminURL(),
+			"organization",
+			i.ID.String(),
+		).String(),
+		*i,
+	)
+}
+
+func (h *Handler) getOrganization(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	i, err := h.r.PrivilegedIdentityPool().GetOrganizationDetail(r.Context(), x.ParseUUID(ps.ByName("id")))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+	h.r.Writer().Write(w, r, *i)
+}
+
+func (h *Handler) deleteOrganization(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	if err := h.r.IdentityPool().(PrivilegedPool).DeleteOrganization(r.Context(), x.ParseUUID(ps.ByName("id"))); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) updateOrganization(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	var cr AdminCreateOrganizationBody
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&cr); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i := &Organization{
+		ID: x.ParseUUID(ps.ByName("id")),
+		Logo:                     cr.Logo,
+		Name:                     cr.Name,
+		Slug:                     cr.Slug,
+		LeadsOwner:               cr.LeadsOwner,
+		EnableQa:                 cr.EnableQa,
+		IsActive:                 cr.IsActive,
+		ShowCommission:           cr.ShowCommission,
+		ShowMemberStructure:      cr.ShowMemberStructure,
+		UseSimpleLeadStatus:      cr.UseSimpleLeadStatus,
+		ShowLevelInDashboard:     cr.ShowLevelInDashboard,
+		ShowShortcutsInDashboard: cr.ShowShortcutsInDashboard,
+	}
+
+	if err :=h.r.IdentityPool().(PrivilegedPool).UpdateOrganization(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	h.r.Writer().WriteCreated(w, r,
+		urlx.AppendPaths(
+			h.r.Config(r.Context()).SelfAdminURL(),
+			"organization",
+			i.ID.String(),
+		).String(),
+		*i,
+	)
 }
