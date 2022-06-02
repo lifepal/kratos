@@ -63,8 +63,11 @@ func NewHandler(r handlerDependencies) *Handler {
 func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	h.r.CSRFHandler().IgnoreGlobs(
 		RouteCollection, RouteCollection+"/*",
-		x.AdminPrefix+RouteCollection, x.AdminPrefix+RouteCollection+"/*",
+		x.AdminPrefix+RouteCollection,
+		x.AdminPrefix+RouteCollection+"/*",
 	)
+	// gatekeeper
+	public.GET(GetOneByIdRoute, x.RedirectToAdminRoute(h.r))
 
 	public.GET(RouteCollection, x.RedirectToAdminRoute(h.r))
 	public.GET(RouteItem, x.RedirectToAdminRoute(h.r))
@@ -93,6 +96,9 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
+	// gatekeeper
+	admin.GET(GetOneByIdRoute, h.GetOneById)
+
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)
 	admin.PUT(RouteItem, h.update)
