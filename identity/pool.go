@@ -10,6 +10,9 @@ type (
 		// ListIdentities lists all identities in the store given the page and itemsPerPage.
 		ListIdentities(ctx context.Context, page, itemsPerPage int) ([]Identity, error)
 
+		// DetailIdentitiesFiltered lists all identities in the store given the page and itemsPerPage with filter parameter
+		DetailIdentitiesFiltered(ctx context.Context, filter AdminFilterIdentityBody) (*Identity, error)
+
 		// ListIdentitiesFiltered lists all identities in the store given the page and itemsPerPage with filter parameter
 		ListIdentitiesFiltered(ctx context.Context, filter AdminFilterIdentityBody, page, itemsPerPage int) ([]Identity, error)
 

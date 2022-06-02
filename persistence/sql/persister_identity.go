@@ -353,6 +353,26 @@ func (p *Persister) buildIdentityFilterScope(ctx context.Context, filters []*ide
 	}
 }
 
+func (p *Persister) DetailIdentitiesFiltered(ctx context.Context, filter identity.AdminFilterIdentityBody) (*identity.Identity, error) {
+	is := new(identity.Identity)
+
+	// validate equality filter
+	filters, err := p.constructIdentityFilter(ctx, filter.Filters)
+	if err != nil {
+		return nil, err
+	}
+
+	/* #nosec G201 TableName is static */
+	if err := sqlcon.HandleError(p.GetConnection(ctx).Where("nid = ?", corp.ContextualizeNID(ctx, p.nid)).
+		EagerPreload("VerifiableAddresses", "RecoveryAddresses").
+		Order("id DESC").
+		Scope(p.buildIdentityFilterScope(ctx, filters)).
+		First(is)); err != nil {
+		return nil, err
+	}
+	return is, nil
+}
+
 func (p *Persister) ListIdentitiesFiltered(ctx context.Context, filter identity.AdminFilterIdentityBody, page, perPage int) ([]identity.Identity, error) {
 	is := make([]identity.Identity, 0)
 

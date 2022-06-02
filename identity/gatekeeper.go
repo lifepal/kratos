@@ -1,25 +1,59 @@
 package identity
 
 import (
+	"encoding/json"
 	"github.com/julienschmidt/httprouter"
 	"github.com/ory/herodot"
 	"github.com/ory/kratos/x"
+	"github.com/ory/x/jsonx"
+	"github.com/ory/x/sqlxx"
 	"github.com/pkg/errors"
 	"net/http"
+	"time"
 )
 
 const (
+	DefaultSchemaId = "lifepal"
 	RouteGatekeeper = "/gatekeeper"
 
-	GetOneByIdRoute = RouteGatekeeper + "/GetOneById" + "/:id"
+	GetOneByIdRoute             = RouteGatekeeper + "/GetOneById" + "/:id"
+	GetOneByEmailRoute          = RouteGatekeeper + "/GetOneByEmail"
+	GetOneByEmailPhoneRoute     = RouteGatekeeper + "/GetOneByEmailPhone"
+	CreateWithoutPasswordRoute  = RouteGatekeeper + "/CreateWithoutPassword"
+	CreateWithPasswordRoute     = RouteGatekeeper + "/CreateWithPassword"
+	CreateOrganizationUserRoute = RouteGatekeeper + "/CreateOrganizationUser"
+	ChangePasswordRoute         = RouteGatekeeper + "/ChangePassword"
+	SoftDeleteRoute 			= RouteGatekeeper + "/SoftDelete"
+	ActivateUserRoute = RouteGatekeeper + "/ActivateUser"
 )
+
+type UserTraits struct {
+	LastLogin      string `json:"last_login"`
+	IsSuperuser    bool   `json:"is_superuser"`
+	Phone          string `json:"phone"`
+	Username       string `json:"username"`
+	FirstName      string `json:"first_name"`
+	LastName       string `json:"last_name"`
+	Email          string `json:"email"`
+	IsStaff        bool   `json:"is_staff"`
+	IsActive       bool   `json:"is_active"`
+	DateJoined     string `json:"date_joined"`
+	SocialId       int64  `json:"social_id"`
+	SocialType     int64  `json:"social_type"`
+	Source         int64  `json:"source"`
+	HumanId        int64  `json:"human_id"`
+	IsVerified     bool   `json:"is_verified"`
+	PhoneNumber    string `json:"phone_number"`
+	UpdatedAt      string `json:"updated_at"`
+	OrganizationId string `json:"organization_id"`
+}
 
 // User Gatekeeper struct
 type User struct {
-	Id string `json:"id"`
-	Email string `json:"email"`
-	FirstName string `json:"first_name"`
-	LastName string `json:"last_name"`
+	Id          string `json:"id"`
+	Email       string `json:"email"`
+	FirstName   string `json:"first_name"`
+	LastName    string `json:"last_name"`
 	PhoneNumber string `json:"phone_number"`
 }
 
@@ -31,19 +65,532 @@ func (h *Handler) GetOneById(w http.ResponseWriter, r *http.Request, ps httprout
 		return
 	}
 
-	if declassify := r.URL.Query().Get("include_credential"); declassify == "oidc" {
-		emit, err := i.WithDeclassifiedCredentialsOIDC(r.Context(), h.r)
-		if err != nil {
-			h.r.Writer().WriteError(w, r, err)
-			return
-		}
-		h.r.Writer().Write(w, r, WithCredentialsAndAdminMetadataInJSON(*emit))
+	var userTraits = new(User)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
-	} else if len(declassify) > 0 {
-		h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("Invalid value `%s` for parameter `include_credential`.", declassify)))
-		return
+	}
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
 
+// GetOneByEmail gatekeeper implementation
+func (h *Handler) GetOneByEmail(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p AdminFilterIdentityBody
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
 	}
 
-	h.r.Writer().Write(w, r, WithCredentialsMetadataAndAdminMetadataInJSON(*i))
+	is, err := h.r.IdentityPool().DetailIdentitiesFiltered(r.Context(), p)
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(User)
+	if err = json.Unmarshal(is.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+	resp := &User{
+		Id:          is.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// GetOneByEmailPhone gatekeeper implementation
+func (h *Handler) GetOneByEmailPhone(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p AdminFilterIdentityBody
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	is, err := h.r.IdentityPool().DetailIdentitiesFiltered(r.Context(), p)
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(User)
+	if err = json.Unmarshal(is.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+	resp := &User{
+		Id:          is.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// CreateWithoutPasswordRequest ...
+type CreateWithoutPasswordRequest struct {
+	Email       string `json:"email"`
+	FirstName   string `json:"first_name"`
+	LastName    string `json:"last_name"`
+	PhoneNumber string `json:"phone_number"`
+}
+
+// CreateWithoutPassword gatekeeper implementation
+func (h *Handler) CreateWithoutPassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(CreateWithoutPasswordRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.SchemaID = DefaultSchemaId
+	cr.Traits, _ = json.Marshal(&UserTraits{
+		Email:       p.Email,
+		FirstName:   p.FirstName,
+		LastName:    p.LastName,
+		PhoneNumber: p.PhoneNumber,
+		Phone:       p.PhoneNumber,
+		IsActive:    true,
+	})
+	cr.VerifiableAddresses = []VerifiableAddress{
+		{Value: p.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
+	}
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+
+	i := &Identity{
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: cr.VerifiableAddresses,
+		RecoveryAddresses:   cr.RecoveryAddresses,
+		MetadataAdmin:       []byte(cr.MetadataAdmin),
+		MetadataPublic:      []byte(cr.MetadataPublic),
+	}
+	if err := h.r.IdentityManager().Create(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       p.Email,
+		FirstName:   p.FirstName,
+		LastName:    p.LastName,
+		PhoneNumber: p.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// CreateWithPasswordRequest ...
+type CreateWithPasswordRequest struct {
+	Password    string `json:"password"`
+	Email       string `json:"email"`
+	FirstName   string `json:"first_name"`
+	LastName    string `json:"last_name"`
+	PhoneNumber string `json:"phone_number"`
+}
+
+// CreateWithPassword gatekeeper implementation
+func (h *Handler) CreateWithPassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(CreateWithPasswordRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.Credentials = &AdminIdentityImportCredentials{
+		Password: &AdminIdentityImportCredentialsPassword{
+			Config: AdminIdentityImportCredentialsPasswordConfig{
+				Password: p.Password,
+			},
+		},
+	}
+	cr.SchemaID = DefaultSchemaId
+	cr.Traits, _ = json.Marshal(&UserTraits{
+		Email:       p.Email,
+		FirstName:   p.FirstName,
+		LastName:    p.LastName,
+		PhoneNumber: p.PhoneNumber,
+		Phone:       p.PhoneNumber,
+		IsActive:    true,
+	})
+	cr.VerifiableAddresses = []VerifiableAddress{
+		{Value: p.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
+	}
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i := &Identity{
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: cr.VerifiableAddresses,
+		RecoveryAddresses:   cr.RecoveryAddresses,
+		MetadataAdmin:       []byte(cr.MetadataAdmin),
+		MetadataPublic:      []byte(cr.MetadataPublic),
+	}
+	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.r.IdentityManager().Create(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       p.Email,
+		FirstName:   p.FirstName,
+		LastName:    p.LastName,
+		PhoneNumber: p.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// CreateOrganizationUserRequest ...
+type CreateOrganizationUserRequest struct {
+	Email          string `json:"email"`
+	FirstName      string `json:"first_name"`
+	LastName       string `json:"last_name"`
+	Password       string `json:"password"`
+	PhoneNumber    string `json:"phone_number"`
+	OrganizationId string `json:"organization_id"`
+}
+
+// CreateOrganizationUser gatekeeper implementation
+func (h *Handler) CreateOrganizationUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(CreateOrganizationUserRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.Credentials = &AdminIdentityImportCredentials{
+		Password: &AdminIdentityImportCredentialsPassword{
+			Config: AdminIdentityImportCredentialsPasswordConfig{
+				Password: p.Password,
+			},
+		},
+	}
+	cr.SchemaID = DefaultSchemaId
+	cr.Traits, _ = json.Marshal(&UserTraits{
+		Email:          p.Email,
+		FirstName:      p.FirstName,
+		LastName:       p.LastName,
+		PhoneNumber:    p.PhoneNumber,
+		Phone:          p.PhoneNumber,
+		OrganizationId: p.OrganizationId,
+		IsActive:       true,
+	})
+	cr.VerifiableAddresses = []VerifiableAddress{
+		{Value: p.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
+	}
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i := &Identity{
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: cr.VerifiableAddresses,
+		RecoveryAddresses:   cr.RecoveryAddresses,
+		MetadataAdmin:       []byte(cr.MetadataAdmin),
+		MetadataPublic:      []byte(cr.MetadataPublic),
+	}
+	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.r.IdentityManager().Create(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       p.Email,
+		FirstName:   p.FirstName,
+		LastName:    p.LastName,
+		PhoneNumber: p.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// ChangePasswordRequest ...
+type ChangePasswordRequest struct {
+	Id          string `json:"id"`
+	NewPassword string `json:"new_password"`
+}
+
+// ChangePassword gatekeeper implementation
+func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(ChangePasswordRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.Id))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(User)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.Credentials = &AdminIdentityImportCredentials{
+		Password: &AdminIdentityImportCredentialsPassword{
+			Config: AdminIdentityImportCredentialsPasswordConfig{
+				Password: p.NewPassword,
+			},
+		},
+	}
+	cr.SchemaID = i.SchemaID
+	cr.Traits = json.RawMessage(i.Traits)
+	cr.VerifiableAddresses = []VerifiableAddress{
+		{Value: userTraits.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
+	}
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i = &Identity{
+		ID:                  i.ID,
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: cr.VerifiableAddresses,
+		RecoveryAddresses:   cr.RecoveryAddresses,
+		MetadataAdmin:       []byte(cr.MetadataAdmin),
+		MetadataPublic:      []byte(cr.MetadataPublic),
+	}
+	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// SoftDeleteRequest ...
+type SoftDeleteRequest struct {
+	Id string `json:"id"`
+}
+
+// SoftDelete gatekeeper implementation
+func (h *Handler) SoftDelete(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(SoftDeleteRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.Id))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(User)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.SchemaID = i.SchemaID
+	cr.Traits = json.RawMessage(i.Traits)
+	cr.VerifiableAddresses = []VerifiableAddress{
+		{Value: userTraits.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
+	}
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateInactive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+
+	i = &Identity{
+		Credentials: i.Credentials,
+		ID:                  i.ID,
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: cr.VerifiableAddresses,
+		RecoveryAddresses:   cr.RecoveryAddresses,
+		MetadataAdmin:       []byte(cr.MetadataAdmin),
+		MetadataPublic:      []byte(cr.MetadataPublic),
+	}
+
+	if err := h.r.IdentityManager().UpdateWithoutPrivileges(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// ActivateUserRequest ...
+type ActivateUserRequest struct {
+	Id string `json:"id"`
+	NewPassword string `json:"new_password"`
+}
+
+// ActivateUser gatekeeper implementation
+func (h *Handler) ActivateUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(ActivateUserRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.Id))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(User)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.Credentials = &AdminIdentityImportCredentials{
+		Password: &AdminIdentityImportCredentialsPassword{
+			Config: AdminIdentityImportCredentialsPasswordConfig{
+				Password: p.NewPassword,
+			},
+		},
+	}
+	cr.SchemaID = i.SchemaID
+	cr.Traits = json.RawMessage(i.Traits)
+	cr.VerifiableAddresses = []VerifiableAddress{
+		{Value: userTraits.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
+	}
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i = &Identity{
+		ID:                  i.ID,
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: cr.VerifiableAddresses,
+		RecoveryAddresses:   cr.RecoveryAddresses,
+		MetadataAdmin:       []byte(cr.MetadataAdmin),
+		MetadataPublic:      []byte(cr.MetadataPublic),
+	}
+	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
 }
