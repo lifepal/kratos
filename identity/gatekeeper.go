@@ -1,14 +1,17 @@
 package identity
 
 import (
+	"bytes"
 	"encoding/json"
 	"github.com/julienschmidt/httprouter"
 	"github.com/ory/herodot"
+	"github.com/ory/kratos/hash"
 	"github.com/ory/kratos/x"
 	"github.com/ory/x/jsonx"
 	"github.com/ory/x/sqlxx"
 	"github.com/pkg/errors"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -23,8 +26,10 @@ const (
 	CreateWithPasswordRoute     = RouteGatekeeper + "/CreateWithPassword"
 	CreateOrganizationUserRoute = RouteGatekeeper + "/CreateOrganizationUser"
 	ChangePasswordRoute         = RouteGatekeeper + "/ChangePassword"
-	SoftDeleteRoute 			= RouteGatekeeper + "/SoftDelete"
-	ActivateUserRoute = RouteGatekeeper + "/ActivateUser"
+	SoftDeleteRoute             = RouteGatekeeper + "/SoftDelete"
+	ActivateUserRoute           = RouteGatekeeper + "/ActivateUser"
+	ConfirmPasswordRoute        = RouteGatekeeper + "/ConfirmPassword"
+	ChangeUserInfoRoute			= RouteGatekeeper + "/ChangeUserInfo"
 )
 
 type UserTraits struct {
@@ -382,7 +387,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httpr
 		return
 	}
 
-	var userTraits = new(User)
+	var userTraits = new(UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
@@ -399,9 +404,6 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httpr
 	}
 	cr.SchemaID = i.SchemaID
 	cr.Traits = json.RawMessage(i.Traits)
-	cr.VerifiableAddresses = []VerifiableAddress{
-		{Value: userTraits.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
-	}
 
 	stateChangedAt := sqlxx.NullTime(time.Now())
 	state := StateActive
@@ -418,10 +420,10 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httpr
 		Traits:              []byte(cr.Traits),
 		State:               state,
 		StateChangedAt:      &stateChangedAt,
-		VerifiableAddresses: cr.VerifiableAddresses,
-		RecoveryAddresses:   cr.RecoveryAddresses,
-		MetadataAdmin:       []byte(cr.MetadataAdmin),
-		MetadataPublic:      []byte(cr.MetadataPublic),
+		VerifiableAddresses: i.VerifiableAddresses,
+		RecoveryAddresses:   i.RecoveryAddresses,
+		MetadataAdmin:       i.MetadataAdmin,
+		MetadataPublic:      i.MetadataPublic,
 	}
 	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
 		h.r.Writer().WriteError(w, r, err)
@@ -462,7 +464,7 @@ func (h *Handler) SoftDelete(w http.ResponseWriter, r *http.Request, _ httproute
 		return
 	}
 
-	var userTraits = new(User)
+	var userTraits = new(UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
@@ -472,9 +474,6 @@ func (h *Handler) SoftDelete(w http.ResponseWriter, r *http.Request, _ httproute
 	var cr = new(AdminCreateIdentityBody)
 	cr.SchemaID = i.SchemaID
 	cr.Traits = json.RawMessage(i.Traits)
-	cr.VerifiableAddresses = []VerifiableAddress{
-		{Value: userTraits.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
-	}
 
 	stateChangedAt := sqlxx.NullTime(time.Now())
 	state := StateInactive
@@ -487,16 +486,16 @@ func (h *Handler) SoftDelete(w http.ResponseWriter, r *http.Request, _ httproute
 	}
 
 	i = &Identity{
-		Credentials: i.Credentials,
+		Credentials:         i.Credentials,
 		ID:                  i.ID,
 		SchemaID:            cr.SchemaID,
 		Traits:              []byte(cr.Traits),
 		State:               state,
 		StateChangedAt:      &stateChangedAt,
-		VerifiableAddresses: cr.VerifiableAddresses,
-		RecoveryAddresses:   cr.RecoveryAddresses,
-		MetadataAdmin:       []byte(cr.MetadataAdmin),
-		MetadataPublic:      []byte(cr.MetadataPublic),
+		VerifiableAddresses: i.VerifiableAddresses,
+		RecoveryAddresses:   i.RecoveryAddresses,
+		MetadataAdmin:       i.MetadataAdmin,
+		MetadataPublic:      i.MetadataPublic,
 	}
 
 	if err := h.r.IdentityManager().UpdateWithoutPrivileges(r.Context(), i); err != nil {
@@ -516,7 +515,7 @@ func (h *Handler) SoftDelete(w http.ResponseWriter, r *http.Request, _ httproute
 
 // ActivateUserRequest ...
 type ActivateUserRequest struct {
-	Id string `json:"id"`
+	Id          string `json:"id"`
 	NewPassword string `json:"new_password"`
 }
 
@@ -534,7 +533,7 @@ func (h *Handler) ActivateUser(w http.ResponseWriter, r *http.Request, _ httprou
 		return
 	}
 
-	var userTraits = new(User)
+	var userTraits = new(UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
@@ -551,9 +550,6 @@ func (h *Handler) ActivateUser(w http.ResponseWriter, r *http.Request, _ httprou
 	}
 	cr.SchemaID = i.SchemaID
 	cr.Traits = json.RawMessage(i.Traits)
-	cr.VerifiableAddresses = []VerifiableAddress{
-		{Value: userTraits.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
-	}
 
 	stateChangedAt := sqlxx.NullTime(time.Now())
 	state := StateActive
@@ -570,10 +566,196 @@ func (h *Handler) ActivateUser(w http.ResponseWriter, r *http.Request, _ httprou
 		Traits:              []byte(cr.Traits),
 		State:               state,
 		StateChangedAt:      &stateChangedAt,
-		VerifiableAddresses: cr.VerifiableAddresses,
-		RecoveryAddresses:   cr.RecoveryAddresses,
-		MetadataAdmin:       []byte(cr.MetadataAdmin),
-		MetadataPublic:      []byte(cr.MetadataPublic),
+		VerifiableAddresses: i.VerifiableAddresses,
+		RecoveryAddresses:   i.RecoveryAddresses,
+		MetadataAdmin:       i.MetadataAdmin,
+		MetadataPublic:      i.MetadataPublic,
+	}
+	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// ConfirmPasswordRequest ...
+type ConfirmPasswordRequest struct {
+	Id              string `json:"id"`
+	OldPassword     string `json:"old_password"`
+	Password        string `json:"password"`
+	ConfirmPassword string `json:"confirm_password"`
+}
+
+// ConfirmPassword gatekeeper implementation
+func (h *Handler) ConfirmPassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(ConfirmPasswordRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.Id))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(UserTraits)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// get user credential
+	cred, _ := i.GetCredentials(CredentialsTypePassword)
+
+	var o CredentialsPassword
+	d := json.NewDecoder(bytes.NewBuffer(cred.Config))
+	if err := d.Decode(&o); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("unable to get credential")))
+		return
+	}
+
+	if err := hash.Compare(r.Context(), []byte(p.OldPassword), []byte(o.HashedPassword)); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid credential old password")))
+		return
+	}
+
+	// check if password and confirm password is not same
+	if p.Password != p.ConfirmPassword {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("password and old password is not matched")))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.Credentials = &AdminIdentityImportCredentials{
+		Password: &AdminIdentityImportCredentialsPassword{
+			Config: AdminIdentityImportCredentialsPasswordConfig{
+				Password: p.Password,
+			},
+		},
+	}
+	cr.SchemaID = i.SchemaID
+	cr.Traits = json.RawMessage(i.Traits)
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i = &Identity{
+		ID:                  i.ID,
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: i.VerifiableAddresses,
+		RecoveryAddresses:   i.RecoveryAddresses,
+		MetadataAdmin:       i.MetadataAdmin,
+		MetadataPublic:      i.MetadataPublic,
+	}
+	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// ChangeUserInfoRequest ...
+type ChangeUserInfoRequest struct {
+	Id string `json:"id"`
+	Email string `json:"email"`
+	PhoneNumber string `json:"phone_number"`
+	FullName string `json:"full_name"`
+}
+
+// ChangeUserInfo gatekeeper implementation
+func (h *Handler) ChangeUserInfo(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(ChangeUserInfoRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.Id))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(UserTraits)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// assign update to this user
+	userTraits.Email = p.Email
+	userTraits.Phone = p.PhoneNumber
+	userTraits.PhoneNumber = p.PhoneNumber
+	if t := strings.Split(p.FullName, " "); len(t) > 0{
+		userTraits.FirstName = t[0]
+		userTraits.LastName = strings.Join(t[1:], " ")
+	} else {
+		userTraits.FirstName = p.FullName
+		userTraits.LastName = ""
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.SchemaID = i.SchemaID
+	cr.Traits, _ = json.Marshal(userTraits)
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i = &Identity{
+		ID:                  i.ID,
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: i.VerifiableAddresses,
+		RecoveryAddresses:   i.RecoveryAddresses,
+		MetadataAdmin:       i.MetadataAdmin,
+		MetadataPublic:      i.MetadataPublic,
 	}
 	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
 		h.r.Writer().WriteError(w, r, err)

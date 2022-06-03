@@ -76,6 +76,8 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	public.POST(ChangePasswordRoute, x.RedirectToAdminRoute(h.r))
 	public.PUT(SoftDeleteRoute, x.RedirectToAdminRoute(h.r))
 	public.PUT(ActivateUserRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(ConfirmPasswordRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(ChangeUserInfoRoute, x.RedirectToAdminRoute(h.r))
 
 
 	public.GET(RouteCollection, x.RedirectToAdminRoute(h.r))
@@ -115,6 +117,8 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.POST(ChangePasswordRoute, h.ChangePassword)
 	admin.PUT(SoftDeleteRoute, h.SoftDelete)
 	admin.PUT(ActivateUserRoute, h.ActivateUser)
+	admin.PUT(ConfirmPasswordRoute, h.ConfirmPassword)
+	admin.PUT(ChangeUserInfoRoute, h.ChangeUserInfo)
 
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)
