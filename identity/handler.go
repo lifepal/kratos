@@ -78,6 +78,12 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	public.PUT(ActivateUserRoute, x.RedirectToAdminRoute(h.r))
 	public.PUT(ConfirmPasswordRoute, x.RedirectToAdminRoute(h.r))
 	public.PUT(ChangeUserInfoRoute, x.RedirectToAdminRoute(h.r))
+	public.GET(GetUserWithOrganizationByIdRoute, x.RedirectToAdminRoute(h.r))
+	public.GET(GetOrganizationByIdRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(GetUserByGroupsRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(CreateOrganizationRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(UpdateOrganizationUserRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(UpdateUserOrganizationRoute, x.RedirectToAdminRoute(h.r))
 
 
 	public.GET(RouteCollection, x.RedirectToAdminRoute(h.r))
@@ -119,6 +125,12 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.PUT(ActivateUserRoute, h.ActivateUser)
 	admin.PUT(ConfirmPasswordRoute, h.ConfirmPassword)
 	admin.PUT(ChangeUserInfoRoute, h.ChangeUserInfo)
+	admin.GET(GetUserWithOrganizationByIdRoute, h.GetUserWithOrganizationById)
+	admin.GET(GetOrganizationByIdRoute, h.GetOrganizationById)
+	admin.POST(GetUserByGroupsRoute, h.GetUserByGroups)
+	admin.POST(CreateOrganizationRoute, h.CreateOrganization)
+	admin.PUT(UpdateOrganizationUserRoute, h.UpdateOrganizationUser)
+	admin.PUT(UpdateUserOrganizationRoute, h.UpdateUserOrganization)
 
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)
