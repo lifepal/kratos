@@ -126,6 +126,7 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.PUT(ConfirmPasswordRoute, h.ConfirmPassword)
 	admin.PUT(ChangeUserInfoRoute, h.ChangeUserInfo)
 	admin.GET(GetUserWithOrganizationByIdRoute, h.GetUserWithOrganizationById)
+	admin.GET(GetOrganizationByIdRoute, h.GetOrganizationById)
 
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)
