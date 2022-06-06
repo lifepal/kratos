@@ -11,6 +11,7 @@ import (
 	"github.com/ory/x/sqlxx"
 	"github.com/pkg/errors"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -703,6 +704,62 @@ func (h *Handler) ConfirmPassword(w http.ResponseWriter, r *http.Request, _ http
 	}
 
 	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// ChangeUserInfoRequest ...
+type ChangeUserInfoRequest struct {
+	Id          string `json:"id"`
+	Email       string `json:"email"`
+	PhoneNumber string `json:"phone_number"`
+	FullName    string `json:"full_name"`
+}
+
+// ChangeUserInfo gatekeeper implementation
+func (h *Handler) ChangeUserInfo(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(ChangeUserInfoRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.Id))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(UserTraits)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// assign update to this user
+	userTraits.Email = p.Email
+	userTraits.Phone = p.PhoneNumber
+	userTraits.PhoneNumber = p.PhoneNumber
+	if t := strings.Split(p.FullName, " "); len(t) > 0 {
+		userTraits.FirstName = t[0]
+		userTraits.LastName = strings.Join(t[1:], " ")
+	} else {
+		userTraits.FirstName = p.FullName
+		userTraits.LastName = ""
+	}
+
+	i.Traits, _ = json.Marshal(userTraits)
+	if err := h.r.IdentityManager().UpdateTraits(r.Context(), i.ID, i.Traits, ManagerAllowWriteProtectedTraits); err != nil {
 		h.r.Writer().WriteError(w, r, err)
 		return
 	}
