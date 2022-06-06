@@ -84,6 +84,7 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	public.POST(CreateOrganizationRoute, x.RedirectToAdminRoute(h.r))
 	public.PUT(UpdateOrganizationUserRoute, x.RedirectToAdminRoute(h.r))
 	public.PUT(UpdateUserOrganizationRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(UpsertZendeskUserIdRoute, x.RedirectToAdminRoute(h.r))
 
 
 	public.GET(RouteCollection, x.RedirectToAdminRoute(h.r))
@@ -131,6 +132,7 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.POST(CreateOrganizationRoute, h.CreateOrganization)
 	admin.PUT(UpdateOrganizationUserRoute, h.UpdateOrganizationUser)
 	admin.PUT(UpdateUserOrganizationRoute, h.UpdateUserOrganization)
+	admin.PUT(UpsertZendeskUserIdRoute, h.UpsertZendeskUserId)
 
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)

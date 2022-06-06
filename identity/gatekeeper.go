@@ -37,6 +37,7 @@ const (
 	CreateOrganizationRoute          = RouteGatekeeper + "/CreateOrganization"
 	UpdateOrganizationUserRoute      = RouteGatekeeper + "/UpdateOrganizationUser"
 	UpdateUserOrganizationRoute = RouteGatekeeper + "/UpdateUserOrganization"
+	UpsertZendeskUserIdRoute = RouteGatekeeper + "/UpsertZendeskUserId"
 )
 
 type UserTraits struct {
@@ -58,6 +59,7 @@ type UserTraits struct {
 	PhoneNumber    string `json:"phone_number"`
 	UpdatedAt      string `json:"updated_at"`
 	OrganizationId string `json:"organization_id"`
+	ZendeskUserid string `json:"zendesk_userid"`
 }
 
 type OrganizationGatekeeper struct {
@@ -869,7 +871,7 @@ func (h *Handler) GetOrganizationById(w http.ResponseWriter, r *http.Request, ps
 }
 
 // GetUserByGroups gatekeeper implementation
-func (h *Handler) GetUserByGroups(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func (h *Handler) GetUserByGroups(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	var p AdminFilterIdentityBody
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
@@ -890,7 +892,7 @@ type CreateOrganizationRequest struct {
 }
 
 // CreateOrganization gatekeeper implementation
-func (h *Handler) CreateOrganization(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func (h *Handler) CreateOrganization(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	var p CreateOrganizationRequest
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
@@ -927,7 +929,7 @@ type UpdateOrganizationUserRequest struct {
 }
 
 // UpdateOrganizationUser gatekeeper implementation
-func (h *Handler) UpdateOrganizationUser(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func (h *Handler) UpdateOrganizationUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	var p UpdateOrganizationUserRequest
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
@@ -1011,7 +1013,7 @@ type UpdateUserOrganizationRequest struct {
 }
 
 // UpdateUserOrganization gatekeeper implementation
-func (h *Handler) UpdateUserOrganization(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func (h *Handler) UpdateUserOrganization(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	var p UpdateUserOrganizationRequest
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
@@ -1062,4 +1064,69 @@ func (h *Handler) UpdateUserOrganization(w http.ResponseWriter, r *http.Request,
 
 	}
 	h.r.Writer().Write(w, r, map[string]bool{"status": true})
+}
+
+type UpsertZendeskUserIdRequest struct {
+	ZendeskUserid string `json:"zendesk_userid"`
+	UserId string `json:"user_id"`
+}
+
+// UpsertZendeskUserId gatekeeper implementation
+func (h *Handler) UpsertZendeskUserId(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p UpsertZendeskUserIdRequest
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.UserId))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(UserTraits)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// assign zendesk user id
+	userTraits.ZendeskUserid = p.ZendeskUserid
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.SchemaID = i.SchemaID
+	cr.Traits, _ = json.Marshal(userTraits)
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i = &Identity{
+		ID:                  i.ID,
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: i.VerifiableAddresses,
+		RecoveryAddresses:   i.RecoveryAddresses,
+		MetadataAdmin:       i.MetadataAdmin,
+		MetadataPublic:      i.MetadataPublic,
+	}
+
+	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	h.r.Writer().Write(w, r, map[string]interface{}{
+		"updated": true,
+		"zendesk_userid": userTraits.ZendeskUserid,
+		"user_id": i.ID.String(),
+	})
 }
