@@ -303,3 +303,83 @@ func (h *Handler) CreateWithPassword(w http.ResponseWriter, r *http.Request, _ h
 	}
 	h.r.Writer().Write(w, r, resp)
 }
+
+// CreateOrganizationUserRequest ...
+type CreateOrganizationUserRequest struct {
+	Email          string `json:"email"`
+	FirstName      string `json:"first_name"`
+	LastName       string `json:"last_name"`
+	Password       string `json:"password"`
+	PhoneNumber    string `json:"phone_number"`
+	OrganizationId string `json:"organization_id"`
+}
+
+// CreateOrganizationUser gatekeeper implementation
+func (h *Handler) CreateOrganizationUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(CreateOrganizationUserRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.Credentials = &AdminIdentityImportCredentials{
+		Password: &AdminIdentityImportCredentialsPassword{
+			Config: AdminIdentityImportCredentialsPasswordConfig{
+				Password: p.Password,
+			},
+		},
+	}
+	cr.SchemaID = DefaultSchemaId
+	cr.Traits, _ = json.Marshal(&UserTraits{
+		Email:          p.Email,
+		FirstName:      p.FirstName,
+		LastName:       p.LastName,
+		PhoneNumber:    p.PhoneNumber,
+		Phone:          p.PhoneNumber,
+		OrganizationId: p.OrganizationId,
+		IsActive:       true,
+	})
+	cr.VerifiableAddresses = []VerifiableAddress{
+		{Value: p.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
+	}
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i := &Identity{
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: cr.VerifiableAddresses,
+		RecoveryAddresses:   cr.RecoveryAddresses,
+		MetadataAdmin:       []byte(cr.MetadataAdmin),
+		MetadataPublic:      []byte(cr.MetadataPublic),
+	}
+	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.r.IdentityManager().Create(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       p.Email,
+		FirstName:   p.FirstName,
+		LastName:    p.LastName,
+		PhoneNumber: p.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
