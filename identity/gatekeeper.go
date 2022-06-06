@@ -773,3 +773,51 @@ func (h *Handler) ChangeUserInfo(w http.ResponseWriter, r *http.Request, _ httpr
 	}
 	h.r.Writer().Write(w, r, resp)
 }
+
+// GetUserWithOrganizationByIdRequest ...
+type GetUserWithOrganizationByIdRequest struct {
+	Id string `json:"id"`
+}
+
+// GetUserWithOrganizationById gatekeeper implementation
+func (h *Handler) GetUserWithOrganizationById(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	var p = new(GetUserWithOrganizationByIdRequest)
+	p.Id = ps.ByName("id")
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.Id))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(UserTraits)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+
+	org, err := h.r.PrivilegedIdentityPool().GetOrganizationDetail(r.Context(), x.ParseUUID(userTraits.OrganizationId))
+	if err != nil || org == nil {
+		h.r.Writer().Write(w, r, resp)
+		return
+	}
+
+	resp.Organization = &OrganizationGatekeeper{
+		Id:                       org.ID.String(),
+		Name:                     org.Name,
+		LeadsOwner:               org.LeadsOwner,
+		ShowCommission:           org.ShowCommission,
+		EnableQa:                 org.EnableQa,
+		ShowLevelInDashboard:     org.ShowLevelInDashboard,
+		ShowShortcutsInDashboard: org.ShowShortcutsInDashboard,
+		UseSimpleLeadStatus:      org.UseSimpleLeadStatus,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
