@@ -117,6 +117,7 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.GET(GetOneByIdRoute, h.GetOneById)
 	admin.POST(GetOneByEmailRoute, h.GetOneByEmail)
 	admin.POST(GetOneByEmailPhoneRoute, h.GetOneByEmailPhone)
+	admin.POST(CreateWithoutPasswordRoute, h.CreateWithoutPassword)
 
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)

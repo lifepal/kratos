@@ -3,10 +3,13 @@ package identity
 import (
 	"encoding/json"
 	"github.com/julienschmidt/httprouter"
+	"github.com/ory/herodot"
 	"github.com/ory/kratos/x"
 	"github.com/ory/x/jsonx"
+	"github.com/ory/x/sqlxx"
 	"github.com/pkg/errors"
 	"net/http"
+	"time"
 )
 
 const (
@@ -153,6 +156,72 @@ func (h *Handler) GetOneByEmailPhone(w http.ResponseWriter, r *http.Request, _ h
 		FirstName:   userTraits.FirstName,
 		LastName:    userTraits.LastName,
 		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// CreateWithoutPasswordRequest ...
+type CreateWithoutPasswordRequest struct {
+	Email       string `json:"email"`
+	FirstName   string `json:"first_name"`
+	LastName    string `json:"last_name"`
+	PhoneNumber string `json:"phone_number"`
+}
+
+// CreateWithoutPassword gatekeeper implementation
+func (h *Handler) CreateWithoutPassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(CreateWithoutPasswordRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.SchemaID = DefaultSchemaId
+	cr.Traits, _ = json.Marshal(&UserTraits{
+		Email:       p.Email,
+		FirstName:   p.FirstName,
+		LastName:    p.LastName,
+		PhoneNumber: p.PhoneNumber,
+		Phone:       p.PhoneNumber,
+		IsActive:    true,
+	})
+	cr.VerifiableAddresses = []VerifiableAddress{
+		{Value: p.Email, Verified: true, Via: VerifiableAddressTypeEmail, Status: VerifiableAddressStatusCompleted},
+	}
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+
+	i := &Identity{
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: cr.VerifiableAddresses,
+		RecoveryAddresses:   cr.RecoveryAddresses,
+		MetadataAdmin:       []byte(cr.MetadataAdmin),
+		MetadataPublic:      []byte(cr.MetadataPublic),
+	}
+	if err := h.r.IdentityManager().Create(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       p.Email,
+		FirstName:   p.FirstName,
+		LastName:    p.LastName,
+		PhoneNumber: p.PhoneNumber,
 	}
 	h.r.Writer().Write(w, r, resp)
 }
