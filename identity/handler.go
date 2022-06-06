@@ -123,6 +123,7 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.POST(ChangePasswordRoute, h.ChangePassword)
 	admin.PUT(SoftDeleteRoute, h.SoftDelete)
 	admin.PUT(ActivateUserRoute, h.ActivateUser)
+	admin.PUT(ConfirmPasswordRoute, h.ConfirmPassword)
 
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)
