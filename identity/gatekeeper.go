@@ -36,8 +36,8 @@ const (
 	GetUserByGroupsRoute             = RouteGatekeeper + "/GetUserByGroups"
 	CreateOrganizationRoute          = RouteGatekeeper + "/CreateOrganization"
 	UpdateOrganizationUserRoute      = RouteGatekeeper + "/UpdateOrganizationUser"
-	UpdateUserOrganizationRoute = RouteGatekeeper + "/UpdateUserOrganization"
-	UpsertZendeskUserIdRoute = RouteGatekeeper + "/UpsertZendeskUserId"
+	UpdateUserOrganizationRoute      = RouteGatekeeper + "/UpdateUserOrganization"
+	UpsertZendeskUserIdRoute         = RouteGatekeeper + "/UpsertZendeskUserId"
 )
 
 type UserTraits struct {
@@ -59,7 +59,7 @@ type UserTraits struct {
 	PhoneNumber    string `json:"phone_number"`
 	UpdatedAt      string `json:"updated_at"`
 	OrganizationId string `json:"organization_id"`
-	ZendeskUserid string `json:"zendesk_userid"`
+	ZendeskUserid  string `json:"zendesk_userid"`
 }
 
 type OrganizationGatekeeper struct {
@@ -634,6 +634,12 @@ func (h *Handler) ConfirmPassword(w http.ResponseWriter, r *http.Request, _ http
 		return
 	}
 
+	// if user is inactive cannot change password
+	if i.State == StateInactive {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("user is inactive")))
+		return
+	}
+
 	var userTraits = new(UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
@@ -753,32 +759,8 @@ func (h *Handler) ChangeUserInfo(w http.ResponseWriter, r *http.Request, _ httpr
 		userTraits.LastName = ""
 	}
 
-	// create default payload for this request
-	var cr = new(AdminCreateIdentityBody)
-	cr.SchemaID = i.SchemaID
-	cr.Traits, _ = json.Marshal(userTraits)
-	stateChangedAt := sqlxx.NullTime(time.Now())
-	state := StateActive
-	if cr.State != "" {
-		if err := cr.State.IsValid(); err != nil {
-			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
-			return
-		}
-		state = cr.State
-	}
-	i = &Identity{
-		ID:                  i.ID,
-		SchemaID:            cr.SchemaID,
-		Traits:              []byte(cr.Traits),
-		State:               state,
-		StateChangedAt:      &stateChangedAt,
-		VerifiableAddresses: i.VerifiableAddresses,
-		RecoveryAddresses:   i.RecoveryAddresses,
-		MetadataAdmin:       i.MetadataAdmin,
-		MetadataPublic:      i.MetadataPublic,
-	}
-
-	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+	i.Traits, _ = json.Marshal(userTraits)
+	if err := h.r.IdentityManager().UpdateTraits(r.Context(), i.ID, i.Traits, ManagerAllowWriteProtectedTraits); err != nil {
 		h.r.Writer().WriteError(w, r, err)
 		return
 	}
@@ -965,32 +947,9 @@ func (h *Handler) UpdateOrganizationUser(w http.ResponseWriter, r *http.Request,
 	userTraits.Phone = p.PhoneNumber
 	userTraits.PhoneNumber = p.PhoneNumber
 
-	// create default payload for this request
-	var cr = new(AdminCreateIdentityBody)
-	cr.SchemaID = i.SchemaID
-	cr.Traits, _ = json.Marshal(userTraits)
-	stateChangedAt := sqlxx.NullTime(time.Now())
-	state := StateActive
-	if cr.State != "" {
-		if err := cr.State.IsValid(); err != nil {
-			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
-			return
-		}
-		state = cr.State
-	}
-	i = &Identity{
-		ID:                  i.ID,
-		SchemaID:            cr.SchemaID,
-		Traits:              []byte(cr.Traits),
-		State:               state,
-		StateChangedAt:      &stateChangedAt,
-		VerifiableAddresses: i.VerifiableAddresses,
-		RecoveryAddresses:   i.RecoveryAddresses,
-		MetadataAdmin:       i.MetadataAdmin,
-		MetadataPublic:      i.MetadataPublic,
-	}
+	i.Traits, _ = json.Marshal(userTraits)
 
-	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+	if err := h.r.IdentityManager().UpdateTraits(r.Context(), i.ID, i.Traits, ManagerAllowWriteProtectedTraits); err != nil {
 		h.r.Writer().WriteError(w, r, err)
 		return
 	}
@@ -1023,52 +982,31 @@ func (h *Handler) UpdateUserOrganization(w http.ResponseWriter, r *http.Request,
 	for _, userId := range p.UserIds {
 		i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(userId))
 		if err != nil {
-			h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(errors.Errorf("found error in user %s: %s", userId, err)))
+			h.r.Writer().WriteError(w, r, err)
 			return
 		}
+
 		var userTraits = new(UserTraits)
 		if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 			h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 			return
 		}
-		userTraits.OrganizationId = p.OrganizationId
-		// create default payload for this request
-		var cr = new(AdminCreateIdentityBody)
-		cr.SchemaID = i.SchemaID
-		cr.Traits, _ = json.Marshal(userTraits)
-		stateChangedAt := sqlxx.NullTime(time.Now())
-		state := StateActive
-		if cr.State != "" {
-			if err := cr.State.IsValid(); err != nil {
-				h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
-				return
-			}
-			state = cr.State
-		}
-		i = &Identity{
-			ID:                  i.ID,
-			SchemaID:            cr.SchemaID,
-			Traits:              []byte(cr.Traits),
-			State:               state,
-			StateChangedAt:      &stateChangedAt,
-			VerifiableAddresses: i.VerifiableAddresses,
-			RecoveryAddresses:   i.RecoveryAddresses,
-			MetadataAdmin:       i.MetadataAdmin,
-			MetadataPublic:      i.MetadataPublic,
-		}
 
-		if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		// assign organization id
+		userTraits.OrganizationId = p.OrganizationId
+		i.Traits, _ = json.Marshal(userTraits)
+
+		if err := h.r.IdentityManager().UpdateTraits(r.Context(), i.ID, i.Traits, ManagerAllowWriteProtectedTraits); err != nil {
 			h.r.Writer().WriteError(w, r, err)
 			return
 		}
-
 	}
 	h.r.Writer().Write(w, r, map[string]bool{"status": true})
 }
 
 type UpsertZendeskUserIdRequest struct {
 	ZendeskUserid string `json:"zendesk_userid"`
-	UserId string `json:"user_id"`
+	UserId        string `json:"user_id"`
 }
 
 // UpsertZendeskUserId gatekeeper implementation
@@ -1093,40 +1031,16 @@ func (h *Handler) UpsertZendeskUserId(w http.ResponseWriter, r *http.Request, _ 
 
 	// assign zendesk user id
 	userTraits.ZendeskUserid = p.ZendeskUserid
+	i.Traits, _ = json.Marshal(userTraits)
 
-	// create default payload for this request
-	var cr = new(AdminCreateIdentityBody)
-	cr.SchemaID = i.SchemaID
-	cr.Traits, _ = json.Marshal(userTraits)
-	stateChangedAt := sqlxx.NullTime(time.Now())
-	state := StateActive
-	if cr.State != "" {
-		if err := cr.State.IsValid(); err != nil {
-			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
-			return
-		}
-		state = cr.State
-	}
-	i = &Identity{
-		ID:                  i.ID,
-		SchemaID:            cr.SchemaID,
-		Traits:              []byte(cr.Traits),
-		State:               state,
-		StateChangedAt:      &stateChangedAt,
-		VerifiableAddresses: i.VerifiableAddresses,
-		RecoveryAddresses:   i.RecoveryAddresses,
-		MetadataAdmin:       i.MetadataAdmin,
-		MetadataPublic:      i.MetadataPublic,
-	}
-
-	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+	if err := h.r.IdentityManager().UpdateTraits(r.Context(), i.ID, i.Traits, ManagerAllowWriteProtectedTraits); err != nil {
 		h.r.Writer().WriteError(w, r, err)
 		return
 	}
 
 	h.r.Writer().Write(w, r, map[string]interface{}{
-		"updated": true,
+		"updated":        true,
 		"zendesk_userid": userTraits.ZendeskUserid,
-		"user_id": i.ID.String(),
+		"user_id":        i.ID.String(),
 	})
 }
