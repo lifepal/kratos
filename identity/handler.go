@@ -71,6 +71,26 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 		x.AdminPrefix+RouteCollection, x.AdminPrefix+RouteCollection+"/*",
 	)
 
+	// gatekeeper
+	public.GET(GetOneByIdRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(GetOneByEmailRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(GetOneByEmailPhoneRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(CreateWithoutPasswordRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(CreateWithPasswordRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(CreateOrganizationUserRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(ChangePasswordRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(SoftDeleteRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(ActivateUserRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(ConfirmPasswordRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(ChangeUserInfoRoute, x.RedirectToAdminRoute(h.r))
+	public.GET(GetUserWithOrganizationByIdRoute, x.RedirectToAdminRoute(h.r))
+	public.GET(GetOrganizationByIdRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(GetUserByGroupsRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(CreateOrganizationRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(UpdateOrganizationUserRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(UpdateUserOrganizationRoute, x.RedirectToAdminRoute(h.r))
+	public.PUT(UpsertZendeskUserIdRoute, x.RedirectToAdminRoute(h.r))
+
 	public.GET(RouteCollection, x.RedirectToAdminRoute(h.r))
 	public.GET(RouteItem, x.RedirectToAdminRoute(h.r))
 	public.DELETE(RouteItem, x.RedirectToAdminRoute(h.r))
@@ -98,6 +118,21 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
+	// gatekeeper
+	admin.GET(GetOneByIdRoute, h.GetOneById)
+	admin.POST(GetOneByEmailRoute, h.GetOneByEmail)
+	admin.POST(GetOneByEmailPhoneRoute, h.GetOneByEmailPhone)
+	admin.POST(CreateWithoutPasswordRoute, h.CreateWithoutPassword)
+	admin.POST(CreateWithPasswordRoute, h.CreateWithPassword)
+	admin.POST(CreateOrganizationUserRoute, h.CreateOrganizationUser)
+	admin.POST(ChangePasswordRoute, h.ChangePassword)
+	admin.PUT(SoftDeleteRoute, h.SoftDelete)
+	admin.PUT(ActivateUserRoute, h.ActivateUser)
+	admin.PUT(ConfirmPasswordRoute, h.ConfirmPassword)
+	admin.PUT(ChangeUserInfoRoute, h.ChangeUserInfo)
+	admin.GET(GetUserWithOrganizationByIdRoute, h.GetUserWithOrganizationById)
+	admin.GET(GetOrganizationByIdRoute, h.GetOrganizationById)
+
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)
 	admin.PUT(RouteItem, h.update)
