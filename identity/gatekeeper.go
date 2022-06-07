@@ -3,6 +3,7 @@ package identity
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/gofrs/uuid"
 	"github.com/julienschmidt/httprouter"
 	"github.com/ory/herodot"
 	"github.com/ory/kratos/hash"
@@ -866,4 +867,39 @@ func (h *Handler) GetUserByGroups(w http.ResponseWriter, r *http.Request, _ http
 		return
 	}
 	h.r.Writer().Write(w, r, is)
+}
+
+// CreateOrganizationRequest ...
+type CreateOrganizationRequest struct {
+	Name string `json:"name"`
+}
+
+// CreateOrganization gatekeeper implementation
+func (h *Handler) CreateOrganization(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p CreateOrganizationRequest
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	newOrgId, _ := uuid.NewV4()
+	i := &Organization{
+		ID:                       newOrgId,
+		Logo:                     "",
+		Name:                     p.Name,
+		Slug:                     "",
+		LeadsOwner:               "",
+		EnableQa:                 false,
+		IsActive:                 true,
+		ShowCommission:           false,
+		ShowMemberStructure:      false,
+		UseSimpleLeadStatus:      false,
+		ShowLevelInDashboard:     false,
+		ShowShortcutsInDashboard: false,
+	}
+	if err := h.r.IdentityPool().(PrivilegedPool).CreateOrganization(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+	h.r.Writer().Write(w, r, i)
 }
