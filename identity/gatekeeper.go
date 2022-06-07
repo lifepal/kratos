@@ -903,3 +903,65 @@ func (h *Handler) CreateOrganization(w http.ResponseWriter, r *http.Request, _ h
 	}
 	h.r.Writer().Write(w, r, i)
 }
+
+// UpdateOrganizationUserRequest ...
+type UpdateOrganizationUserRequest struct {
+	Email          string `json:"email"`
+	PhoneNumber    string `json:"phone_number"`
+	OrganizationId string `json:"organization_id"`
+}
+
+// UpdateOrganizationUser gatekeeper implementation
+func (h *Handler) UpdateOrganizationUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p UpdateOrganizationUserRequest
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	var filter = AdminFilterIdentityBody{
+		Filters: []*FilterIdentityBody{
+			{
+				Key:        "traits.email",
+				Comparison: "eq",
+				Value:      p.Email,
+			},
+			{
+				Key:        "traits.phone_number",
+				Comparison: "eq",
+				Value:      p.PhoneNumber,
+			},
+		},
+	}
+	i, err := h.r.IdentityPool().DetailIdentitiesFiltered(r.Context(), filter)
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(UserTraits)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+	userTraits.OrganizationId = p.OrganizationId
+	userTraits.Phone = p.PhoneNumber
+	userTraits.PhoneNumber = p.PhoneNumber
+
+	i.Traits, _ = json.Marshal(userTraits)
+
+	if err := h.r.IdentityManager().UpdateTraits(r.Context(), i.ID, i.Traits, ManagerAllowWriteProtectedTraits); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+
+	h.r.Writer().Write(w, r, resp)
+}
