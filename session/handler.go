@@ -1,6 +1,7 @@
 package session
 
 import (
+	"github.com/ory/kratos/identity"
 	"net/http"
 	"strconv"
 
@@ -19,6 +20,7 @@ import (
 
 type (
 	handlerDependencies interface {
+		identity.PoolProvider
 		ManagementProvider
 		PersistenceProvider
 		x.WriterProvider
@@ -58,6 +60,9 @@ const (
 )
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
+	// gatekeeper
+	admin.GET(GetTokenRoute, h.GetToken)
+
 	admin.GET(AdminRouteIdentitiesSessions, h.adminListIdentitySessions)
 	admin.DELETE(AdminRouteIdentitiesSessions, h.adminDeleteIdentitySessions)
 	admin.PATCH(AdminRouteSessionExtendId, h.adminSessionExtend)

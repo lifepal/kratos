@@ -6,6 +6,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/julienschmidt/httprouter"
 	"github.com/ory/herodot"
+	"github.com/ory/kratos/gatekeeperschema"
 	"github.com/ory/kratos/hash"
 	"github.com/ory/kratos/x"
 	"github.com/ory/x/jsonx"
@@ -40,50 +41,6 @@ const (
 	UpsertZendeskUserIdRoute         = RouteGatekeeper + "/UpsertZendeskUserId"
 )
 
-type UserTraits struct {
-	LastLogin      string `json:"last_login"`
-	IsSuperuser    bool   `json:"is_superuser"`
-	Phone          string `json:"phone"`
-	Username       string `json:"username"`
-	FirstName      string `json:"first_name"`
-	LastName       string `json:"last_name"`
-	Email          string `json:"email"`
-	IsStaff        bool   `json:"is_staff"`
-	IsActive       bool   `json:"is_active"`
-	DateJoined     string `json:"date_joined"`
-	SocialId       int64  `json:"social_id"`
-	SocialType     int64  `json:"social_type"`
-	Source         int64  `json:"source"`
-	HumanId        int64  `json:"human_id"`
-	IsVerified     bool   `json:"is_verified"`
-	PhoneNumber    string `json:"phone_number"`
-	UpdatedAt      string `json:"updated_at"`
-	OrganizationId string `json:"organization_id"`
-	ZendeskUserid  string `json:"zendesk_userid"`
-	GroupId        string `json:"group_id"`
-}
-
-type OrganizationGatekeeper struct {
-	Id                       string `json:"id"`
-	Name                     string `json:"name"`
-	LeadsOwner               string `json:"leads_owner"`
-	ShowCommission           bool   `json:"show_commision"`
-	EnableQa                 bool   `json:"enable_qa"`
-	ShowLevelInDashboard     bool   `json:"show_level_in_dashboard"`
-	ShowShortcutsInDashboard bool   `json:"show_shortcuts_in_dashboard"`
-	UseSimpleLeadStatus      bool   `json:"use_simple_lead_status"`
-}
-
-// User Gatekeeper struct
-type User struct {
-	Id           string                  `json:"id"`
-	Email        string                  `json:"email"`
-	FirstName    string                  `json:"first_name"`
-	LastName     string                  `json:"last_name"`
-	PhoneNumber  string                  `json:"phone_number"`
-	Organization *OrganizationGatekeeper `json:"organization,omitempty"`
-}
-
 // GetOneById gatekeeper implementation
 func (h *Handler) GetOneById(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(ps.ByName("id")))
@@ -92,12 +49,12 @@ func (h *Handler) GetOneById(w http.ResponseWriter, r *http.Request, ps httprout
 		return
 	}
 
-	var userTraits = new(User)
+	var userTraits = new(gatekeeperschema.User)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
 	}
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
@@ -121,12 +78,12 @@ func (h *Handler) GetOneByEmail(w http.ResponseWriter, r *http.Request, _ httpro
 		return
 	}
 
-	var userTraits = new(User)
+	var userTraits = new(gatekeeperschema.User)
 	if err = json.Unmarshal(is.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
 	}
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          is.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
@@ -150,12 +107,12 @@ func (h *Handler) GetOneByEmailPhone(w http.ResponseWriter, r *http.Request, _ h
 		return
 	}
 
-	var userTraits = new(User)
+	var userTraits = new(gatekeeperschema.User)
 	if err = json.Unmarshal(is.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
 	}
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          is.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
@@ -184,7 +141,7 @@ func (h *Handler) CreateWithoutPassword(w http.ResponseWriter, r *http.Request, 
 	// create default payload for this request
 	var cr = new(AdminCreateIdentityBody)
 	cr.SchemaID = DefaultSchemaId
-	cr.Traits, _ = json.Marshal(&UserTraits{
+	cr.Traits, _ = json.Marshal(&gatekeeperschema.UserTraits{
 		Email:       p.Email,
 		FirstName:   p.FirstName,
 		LastName:    p.LastName,
@@ -221,7 +178,7 @@ func (h *Handler) CreateWithoutPassword(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       p.Email,
 		FirstName:   p.FirstName,
@@ -258,7 +215,7 @@ func (h *Handler) CreateWithPassword(w http.ResponseWriter, r *http.Request, _ h
 		},
 	}
 	cr.SchemaID = DefaultSchemaId
-	cr.Traits, _ = json.Marshal(&UserTraits{
+	cr.Traits, _ = json.Marshal(&gatekeeperschema.UserTraits{
 		Email:       p.Email,
 		FirstName:   p.FirstName,
 		LastName:    p.LastName,
@@ -299,7 +256,7 @@ func (h *Handler) CreateWithPassword(w http.ResponseWriter, r *http.Request, _ h
 		return
 	}
 
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       p.Email,
 		FirstName:   p.FirstName,
@@ -337,7 +294,7 @@ func (h *Handler) CreateOrganizationUser(w http.ResponseWriter, r *http.Request,
 		},
 	}
 	cr.SchemaID = DefaultSchemaId
-	cr.Traits, _ = json.Marshal(&UserTraits{
+	cr.Traits, _ = json.Marshal(&gatekeeperschema.UserTraits{
 		Email:          p.Email,
 		FirstName:      p.FirstName,
 		LastName:       p.LastName,
@@ -379,7 +336,7 @@ func (h *Handler) CreateOrganizationUser(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       p.Email,
 		FirstName:   p.FirstName,
@@ -409,7 +366,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httpr
 		return
 	}
 
-	var userTraits = new(UserTraits)
+	var userTraits = new(gatekeeperschema.UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
@@ -457,7 +414,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httpr
 		return
 	}
 
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
@@ -486,7 +443,7 @@ func (h *Handler) SoftDelete(w http.ResponseWriter, r *http.Request, _ httproute
 		return
 	}
 
-	var userTraits = new(UserTraits)
+	var userTraits = new(gatekeeperschema.UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
@@ -525,7 +482,7 @@ func (h *Handler) SoftDelete(w http.ResponseWriter, r *http.Request, _ httproute
 		return
 	}
 
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
@@ -555,7 +512,7 @@ func (h *Handler) ActivateUser(w http.ResponseWriter, r *http.Request, _ httprou
 		return
 	}
 
-	var userTraits = new(UserTraits)
+	var userTraits = new(gatekeeperschema.UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
@@ -603,7 +560,7 @@ func (h *Handler) ActivateUser(w http.ResponseWriter, r *http.Request, _ httprou
 		return
 	}
 
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
@@ -641,7 +598,7 @@ func (h *Handler) ConfirmPassword(w http.ResponseWriter, r *http.Request, _ http
 		return
 	}
 
-	var userTraits = new(UserTraits)
+	var userTraits = new(gatekeeperschema.UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
@@ -710,7 +667,7 @@ func (h *Handler) ConfirmPassword(w http.ResponseWriter, r *http.Request, _ http
 		return
 	}
 
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
@@ -742,7 +699,7 @@ func (h *Handler) ChangeUserInfo(w http.ResponseWriter, r *http.Request, _ httpr
 		return
 	}
 
-	var userTraits = new(UserTraits)
+	var userTraits = new(gatekeeperschema.UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
@@ -766,7 +723,7 @@ func (h *Handler) ChangeUserInfo(w http.ResponseWriter, r *http.Request, _ httpr
 		return
 	}
 
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
@@ -792,12 +749,12 @@ func (h *Handler) GetUserWithOrganizationById(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	var userTraits = new(UserTraits)
+	var userTraits = new(gatekeeperschema.UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
 	}
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
@@ -811,7 +768,7 @@ func (h *Handler) GetUserWithOrganizationById(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	resp.Organization = &OrganizationGatekeeper{
+	resp.Organization = &gatekeeperschema.OrganizationGatekeeper{
 		Id:                       org.ID.String(),
 		Name:                     org.Name,
 		LeadsOwner:               org.LeadsOwner,
@@ -840,7 +797,7 @@ func (h *Handler) GetOrganizationById(w http.ResponseWriter, r *http.Request, ps
 		return
 	}
 
-	resp := &OrganizationGatekeeper{
+	resp := &gatekeeperschema.OrganizationGatekeeper{
 		Id:                       org.ID.String(),
 		Name:                     org.Name,
 		LeadsOwner:               org.LeadsOwner,
@@ -939,7 +896,7 @@ func (h *Handler) UpdateOrganizationUser(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	var userTraits = new(UserTraits)
+	var userTraits = new(gatekeeperschema.UserTraits)
 	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
 		return
@@ -955,7 +912,7 @@ func (h *Handler) UpdateOrganizationUser(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	resp := &User{
+	resp := &gatekeeperschema.User{
 		Id:          i.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
