@@ -11,3 +11,8 @@ type OrganizationGatekeeper struct {
 	ShowShortcutsInDashboard bool   `json:"show_shortcuts_in_dashboard"`
 	UseSimpleLeadStatus      bool   `json:"use_simple_lead_status"`
 }
+
+// CreateOrganizationRequest ...
+type CreateOrganizationRequest struct {
+	Name string `json:"name"`
+}

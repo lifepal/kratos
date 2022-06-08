@@ -122,17 +122,9 @@ func (h *Handler) GetOneByEmailPhone(w http.ResponseWriter, r *http.Request, _ h
 	h.r.Writer().Write(w, r, resp)
 }
 
-// CreateWithoutPasswordRequest ...
-type CreateWithoutPasswordRequest struct {
-	Email       string `json:"email"`
-	FirstName   string `json:"first_name"`
-	LastName    string `json:"last_name"`
-	PhoneNumber string `json:"phone_number"`
-}
-
 // CreateWithoutPassword gatekeeper implementation
 func (h *Handler) CreateWithoutPassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p = new(CreateWithoutPasswordRequest)
+	var p = new(gatekeeperschema.CreateWithoutPasswordRequest)
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -188,18 +180,9 @@ func (h *Handler) CreateWithoutPassword(w http.ResponseWriter, r *http.Request, 
 	h.r.Writer().Write(w, r, resp)
 }
 
-// CreateWithPasswordRequest ...
-type CreateWithPasswordRequest struct {
-	Password    string `json:"password"`
-	Email       string `json:"email"`
-	FirstName   string `json:"first_name"`
-	LastName    string `json:"last_name"`
-	PhoneNumber string `json:"phone_number"`
-}
-
 // CreateWithPassword gatekeeper implementation
 func (h *Handler) CreateWithPassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p = new(CreateWithPasswordRequest)
+	var p = new(gatekeeperschema.CreateWithPasswordRequest)
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -266,19 +249,9 @@ func (h *Handler) CreateWithPassword(w http.ResponseWriter, r *http.Request, _ h
 	h.r.Writer().Write(w, r, resp)
 }
 
-// CreateOrganizationUserRequest ...
-type CreateOrganizationUserRequest struct {
-	Email          string `json:"email"`
-	FirstName      string `json:"first_name"`
-	LastName       string `json:"last_name"`
-	Password       string `json:"password"`
-	PhoneNumber    string `json:"phone_number"`
-	OrganizationId string `json:"organization_id"`
-}
-
 // CreateOrganizationUser gatekeeper implementation
 func (h *Handler) CreateOrganizationUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p = new(CreateOrganizationUserRequest)
+	var p = new(gatekeeperschema.CreateOrganizationUserRequest)
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -346,15 +319,9 @@ func (h *Handler) CreateOrganizationUser(w http.ResponseWriter, r *http.Request,
 	h.r.Writer().Write(w, r, resp)
 }
 
-// ChangePasswordRequest ...
-type ChangePasswordRequest struct {
-	Id          string `json:"id"`
-	NewPassword string `json:"new_password"`
-}
-
 // ChangePassword gatekeeper implementation
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p = new(ChangePasswordRequest)
+	var p = new(gatekeeperschema.ChangePasswordRequest)
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -424,14 +391,9 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httpr
 	h.r.Writer().Write(w, r, resp)
 }
 
-// SoftDeleteRequest ...
-type SoftDeleteRequest struct {
-	Id string `json:"id"`
-}
-
 // SoftDelete gatekeeper implementation
 func (h *Handler) SoftDelete(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p = new(SoftDeleteRequest)
+	var p = new(gatekeeperschema.SoftDeleteRequest)
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -492,15 +454,9 @@ func (h *Handler) SoftDelete(w http.ResponseWriter, r *http.Request, _ httproute
 	h.r.Writer().Write(w, r, resp)
 }
 
-// ActivateUserRequest ...
-type ActivateUserRequest struct {
-	Id          string `json:"id"`
-	NewPassword string `json:"new_password"`
-}
-
 // ActivateUser gatekeeper implementation
 func (h *Handler) ActivateUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p = new(ActivateUserRequest)
+	var p = new(gatekeeperschema.ActivateUserRequest)
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -570,17 +526,9 @@ func (h *Handler) ActivateUser(w http.ResponseWriter, r *http.Request, _ httprou
 	h.r.Writer().Write(w, r, resp)
 }
 
-// ConfirmPasswordRequest ...
-type ConfirmPasswordRequest struct {
-	Id              string `json:"id"`
-	OldPassword     string `json:"old_password"`
-	Password        string `json:"password"`
-	ConfirmPassword string `json:"confirm_password"`
-}
-
 // ConfirmPassword gatekeeper implementation
 func (h *Handler) ConfirmPassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p = new(ConfirmPasswordRequest)
+	var p = new(gatekeeperschema.ConfirmPasswordRequest)
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -677,17 +625,9 @@ func (h *Handler) ConfirmPassword(w http.ResponseWriter, r *http.Request, _ http
 	h.r.Writer().Write(w, r, resp)
 }
 
-// ChangeUserInfoRequest ...
-type ChangeUserInfoRequest struct {
-	Id          string `json:"id"`
-	Email       string `json:"email"`
-	PhoneNumber string `json:"phone_number"`
-	FullName    string `json:"full_name"`
-}
-
 // ChangeUserInfo gatekeeper implementation
 func (h *Handler) ChangeUserInfo(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p = new(ChangeUserInfoRequest)
+	var p = new(gatekeeperschema.ChangeUserInfoRequest)
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -733,14 +673,9 @@ func (h *Handler) ChangeUserInfo(w http.ResponseWriter, r *http.Request, _ httpr
 	h.r.Writer().Write(w, r, resp)
 }
 
-// GetUserWithOrganizationByIdRequest ...
-type GetUserWithOrganizationByIdRequest struct {
-	Id string `json:"id"`
-}
-
 // GetUserWithOrganizationById gatekeeper implementation
 func (h *Handler) GetUserWithOrganizationById(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	var p = new(GetUserWithOrganizationByIdRequest)
+	var p = new(gatekeeperschema.GetUserWithOrganizationByIdRequest)
 	p.Id = ps.ByName("id")
 
 	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.Id))
@@ -781,14 +716,9 @@ func (h *Handler) GetUserWithOrganizationById(w http.ResponseWriter, r *http.Req
 	h.r.Writer().Write(w, r, resp)
 }
 
-// GetOrganizationByIdRequest ...
-type GetOrganizationByIdRequest struct {
-	Id string `json:"id"`
-}
-
 // GetOrganizationById gatekeeper implementation
 func (h *Handler) GetOrganizationById(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	var p = new(GetOrganizationByIdRequest)
+	var p = new(gatekeeperschema.GetOrganizationByIdRequest)
 	p.Id = ps.ByName("id")
 
 	org, err := h.r.PrivilegedIdentityPool().GetOrganizationDetail(r.Context(), x.ParseUUID(p.Id))
@@ -826,14 +756,9 @@ func (h *Handler) GetUserByGroups(w http.ResponseWriter, r *http.Request, _ http
 	h.r.Writer().Write(w, r, is)
 }
 
-// CreateOrganizationRequest ...
-type CreateOrganizationRequest struct {
-	Name string `json:"name"`
-}
-
 // CreateOrganization gatekeeper implementation
 func (h *Handler) CreateOrganization(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p CreateOrganizationRequest
+	var p gatekeeperschema.CreateOrganizationRequest
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -861,16 +786,9 @@ func (h *Handler) CreateOrganization(w http.ResponseWriter, r *http.Request, _ h
 	h.r.Writer().Write(w, r, i)
 }
 
-// UpdateOrganizationUserRequest ...
-type UpdateOrganizationUserRequest struct {
-	Email          string `json:"email"`
-	PhoneNumber    string `json:"phone_number"`
-	OrganizationId string `json:"organization_id"`
-}
-
 // UpdateOrganizationUser gatekeeper implementation
 func (h *Handler) UpdateOrganizationUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p UpdateOrganizationUserRequest
+	var p gatekeeperschema.UpdateOrganizationUserRequest
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -923,15 +841,9 @@ func (h *Handler) UpdateOrganizationUser(w http.ResponseWriter, r *http.Request,
 	h.r.Writer().Write(w, r, resp)
 }
 
-// UpdateUserOrganizationRequest ...
-type UpdateUserOrganizationRequest struct {
-	UserIds        []string `json:"user_ids"`
-	OrganizationId string   `json:"organization_id"`
-}
-
 // UpdateUserOrganization gatekeeper implementation
 func (h *Handler) UpdateUserOrganization(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p UpdateUserOrganizationRequest
+	var p gatekeeperschema.UpdateUserOrganizationRequest
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
@@ -962,14 +874,9 @@ func (h *Handler) UpdateUserOrganization(w http.ResponseWriter, r *http.Request,
 	h.r.Writer().Write(w, r, map[string]bool{"status": true})
 }
 
-type UpsertZendeskUserIdRequest struct {
-	ZendeskUserid string `json:"zendesk_userid"`
-	UserId        string `json:"user_id"`
-}
-
 // UpsertZendeskUserId gatekeeper implementation
 func (h *Handler) UpsertZendeskUserId(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	var p UpsertZendeskUserIdRequest
+	var p gatekeeperschema.UpsertZendeskUserIdRequest
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
