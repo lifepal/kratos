@@ -115,6 +115,8 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	// gatekeeper
 	admin.GET(GetOneByIdRoute, h.GetOneById)
+	admin.POST(GetOneByEmailRoute, h.GetOneByEmail)
+
 
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)

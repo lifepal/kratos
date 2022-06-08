@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/julienschmidt/httprouter"
 	"github.com/ory/kratos/x"
+	"github.com/ory/x/jsonx"
 	"github.com/pkg/errors"
 	"net/http"
 )
@@ -90,6 +91,35 @@ func (h *Handler) GetOneById(w http.ResponseWriter, r *http.Request, ps httprout
 	}
 	resp := &User{
 		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// GetOneByEmail gatekeeper implementation
+func (h *Handler) GetOneByEmail(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p AdminFilterIdentityBody
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	is, err := h.r.IdentityPool().DetailIdentitiesFiltered(r.Context(), p)
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(User)
+	if err = json.Unmarshal(is.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+	resp := &User{
+		Id:          is.ID.String(),
 		Email:       userTraits.Email,
 		FirstName:   userTraits.FirstName,
 		LastName:    userTraits.LastName,

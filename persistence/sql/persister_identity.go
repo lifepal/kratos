@@ -353,6 +353,67 @@ func (p *Persister) buildIdentityFilterScope(ctx context.Context, filters []*ide
 	}
 }
 
+func (p *Persister) DetailIdentitiesFiltered(ctx context.Context, filter identity.AdminFilterIdentityBody) (*identity.Identity, error) {
+	is := new(identity.Identity)
+
+	// validate equality filter
+	filters, err := p.constructIdentityFilter(ctx, filter.Filters)
+	if err != nil {
+		return nil, err
+	}
+
+	/* #nosec G201 TableName is static */
+	if err := sqlcon.HandleError(p.GetConnection(ctx).Where("nid = ?", corp.ContextualizeNID(ctx, p.nid)).
+		EagerPreload("VerifiableAddresses", "RecoveryAddresses").
+		Order("id DESC").
+		Scope(p.buildIdentityFilterScope(ctx, filters)).
+		First(is)); err != nil {
+		return nil, err
+	}
+	return is, nil
+}
+
+func (p *Persister) ListIdentitiesFilteredWithoutPagination(ctx context.Context, filter identity.AdminFilterIdentityBody) ([]identity.Identity, error) {
+	is := make([]identity.Identity, 0)
+
+	// validate equality filter
+	filters, err := p.constructIdentityFilter(ctx, filter.Filters)
+	if err != nil {
+		return nil, err
+	}
+
+	/* #nosec G201 TableName is static */
+	if err := sqlcon.HandleError(p.GetConnection(ctx).Where("nid = ?", corp.ContextualizeNID(ctx, p.nid)).
+		EagerPreload("VerifiableAddresses", "RecoveryAddresses").
+		Order("id DESC").
+		Scope(p.buildIdentityFilterScope(ctx, filters)).
+		All(&is)); err != nil {
+		return nil, err
+	}
+
+	schemaCache := map[string]string{}
+
+	for k := range is {
+		i := &is[k]
+		if err := i.ValidateNID(); err != nil {
+			return nil, sqlcon.HandleError(err)
+		}
+
+		if u, ok := schemaCache[i.SchemaID]; ok {
+			i.SchemaURL = u
+		} else {
+			if err := p.injectTraitsSchemaURL(ctx, i); err != nil {
+				return nil, err
+			}
+			schemaCache[i.SchemaID] = i.SchemaURL
+		}
+
+		is[k] = *i
+	}
+
+	return is, nil
+}
+
 func (p *Persister) ListIdentitiesFiltered(ctx context.Context, filter identity.AdminFilterIdentityBody, page, perPage int) ([]identity.Identity, error) {
 	is := make([]identity.Identity, 0)
 
