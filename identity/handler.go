@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"encoding/json"
+	"github.com/ory/kratos/courier"
 
 	"net/http"
 	"time"
@@ -36,6 +37,7 @@ const (
 
 type (
 	handlerDependencies interface {
+		courier.ConfigProvider
 		PoolProvider
 		PrivilegedPoolProvider
 		ManagementProvider
@@ -90,6 +92,7 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	public.PUT(UpdateOrganizationUserRoute, x.RedirectToAdminRoute(h.r))
 	public.PUT(UpdateUserOrganizationRoute, x.RedirectToAdminRoute(h.r))
 	public.PUT(UpsertZendeskUserIdRoute, x.RedirectToAdminRoute(h.r))
+	public.POST(NotifyEBAdminRoute, x.RedirectToAdminRoute(h.r))
 
 	public.GET(RouteCollection, x.RedirectToAdminRoute(h.r))
 	public.GET(RouteItem, x.RedirectToAdminRoute(h.r))
@@ -137,6 +140,7 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.PUT(UpdateOrganizationUserRoute, h.UpdateOrganizationUser)
 	admin.PUT(UpdateUserOrganizationRoute, h.UpdateUserOrganization)
 	admin.PUT(UpsertZendeskUserIdRoute, h.UpsertZendeskUserId)
+	admin.POST(NotifyEBAdminRoute, h.NotifyEBAdmin)
 
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)

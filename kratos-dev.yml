@@ -86,4 +86,4 @@ identity:
 
 courier:
   smtp:
-    connection_uri: smtps://test:test@localhost:1025/?skip_ssl_verify=true
+    connection_uri: smtp://ferdina.kusumah@lifepal.co.id:OKTOBER211994@smtp.gmail.com:587?skip_ssl_verify=true

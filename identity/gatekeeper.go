@@ -3,16 +3,19 @@ package identity
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"github.com/gofrs/uuid"
 	"github.com/julienschmidt/httprouter"
 	"github.com/ory/herodot"
 	"github.com/ory/kratos/gatekeeperschema"
 	"github.com/ory/kratos/hash"
 	"github.com/ory/kratos/x"
+	gomail "github.com/ory/mail/v3"
 	"github.com/ory/x/jsonx"
 	"github.com/ory/x/sqlxx"
 	"github.com/pkg/errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -39,6 +42,7 @@ const (
 	UpdateOrganizationUserRoute      = RouteGatekeeper + "/UpdateOrganizationUser"
 	UpdateUserOrganizationRoute      = RouteGatekeeper + "/UpdateUserOrganization"
 	UpsertZendeskUserIdRoute         = RouteGatekeeper + "/UpsertZendeskUserId"
+	NotifyEBAdminRoute = RouteGatekeeper + "/NotifyEBAdmin"
 )
 
 // GetOneById gatekeeper implementation
@@ -907,5 +911,48 @@ func (h *Handler) UpsertZendeskUserId(w http.ResponseWriter, r *http.Request, _ 
 		"updated":        true,
 		"zendesk_userid": userTraits.ZendeskUserid,
 		"user_id":        i.ID.String(),
+	})
+}
+
+// NotifyEBAdmin ...
+func (h *Handler) NotifyEBAdmin(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p gatekeeperschema.NotifyEBAdminRequest
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	recipients := []string{"ferdina.kusumah@gmail.com"}
+
+	fromAddress := h.r.CourierConfig(r.Context()).CourierSMTPFromName()
+	if len(fromAddress) == 0 {
+		fromAddress = "noreply@lifepal.co.id"
+	}
+
+	t := time.Now()
+	subject := fmt.Sprintf(`Notifications for EB Admins about %s-%s`, p.Subject, t.Format("01/02/2006 15:04:05"))
+
+	m := gomail.NewMessage()
+	m.SetHeader("From", fromAddress)
+	m.SetHeader("To", recipients...)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", p.Message)
+
+	uri := h.r.CourierConfig(r.Context()).CourierSMTPURL()
+	host := uri.Hostname()
+	port, _ := strconv.Atoi(uri.Port())
+	password, _ := uri.User.Password()
+	d := gomail.NewDialer(host, port, uri.User.Username(), password)
+
+	go func() {
+		err := d.DialAndSend(r.Context(), m)
+		if err != nil {
+			h.r.Writer().Write(w, r, map[string]interface{}{"response": "unabe to send email"})
+		}
+	}()
+	time.Sleep(1)
+
+	h.r.Writer().Write(w, r, map[string]interface{}{
+		"response": true,
 	})
 }
