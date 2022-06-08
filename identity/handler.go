@@ -136,6 +136,7 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.POST(CreateOrganizationRoute, h.CreateOrganization)
 	admin.PUT(UpdateOrganizationUserRoute, h.UpdateOrganizationUser)
 	admin.PUT(UpdateUserOrganizationRoute, h.UpdateUserOrganization)
+	admin.PUT(UpsertZendeskUserIdRoute, h.UpsertZendeskUserId)
 
 	admin.GET(RouteCollection, h.list)
 	admin.GET(RouteItem, h.get)
