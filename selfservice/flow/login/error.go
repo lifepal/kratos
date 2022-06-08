@@ -28,8 +28,14 @@ var (
 	// ErrSessionRequiredForHigherAAL is returned when someone requests AAL2 or AAL3 even though no active session exists yet.
 	ErrSessionRequiredForHigherAAL = herodot.ErrUnauthorized.WithID(text.ErrIDSessionRequiredForHigherAAL).WithError("aal2 and aal3 can only be requested if a session exists already").WithReason("You can not requested a higher AAL (AAL2/AAL3) without an active session.")
 
+	// ErrUserFirebaseNotFound Google user is not found
+	ErrUserFirebaseNotFound = herodot.ErrUnauthorized.WithID(text.ErrIDSessionRequiredForHigherAAL).WithError("user is not found").WithReason("This token might be expired or invalid")
+
 	// ErrInvalidAccessToken Google user is not found
 	ErrInvalidAccessToken = herodot.ErrUnauthorized.WithID(text.ErrIDSessionRequiredForHigherAAL).WithError("invalid token").WithReason("This token might be expired or invalid")
+
+	// ErrUserIsNotFound Google user is not found
+	ErrUserIsNotFound = herodot.ErrUnauthorized.WithID(text.ErrIDSessionRequiredForHigherAAL).WithError("user not found").WithReason("This token might be expired or invalid")
 
 	// ErrExpiredAccessToken Google user is not found
 	ErrExpiredAccessToken = herodot.ErrUnauthorized.WithID(text.ErrIDSessionRequiredForHigherAAL).WithError("expired token").WithReason("This token might be expired or invalid")
