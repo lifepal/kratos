@@ -127,3 +127,32 @@ func (h *Handler) GetOneByEmail(w http.ResponseWriter, r *http.Request, _ httpro
 	}
 	h.r.Writer().Write(w, r, resp)
 }
+
+// GetOneByEmailPhone gatekeeper implementation
+func (h *Handler) GetOneByEmailPhone(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p AdminFilterIdentityBody
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	is, err := h.r.IdentityPool().DetailIdentitiesFiltered(r.Context(), p)
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(User)
+	if err = json.Unmarshal(is.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+	resp := &User{
+		Id:          is.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
