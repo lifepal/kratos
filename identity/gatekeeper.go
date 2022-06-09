@@ -10,10 +10,10 @@ import (
 	"github.com/ory/kratos/gatekeeperschema"
 	"github.com/ory/kratos/hash"
 	"github.com/ory/kratos/x"
-	gomail "github.com/ory/mail/v3"
 	"github.com/ory/x/jsonx"
 	"github.com/ory/x/sqlxx"
 	"github.com/pkg/errors"
+	"gopkg.in/gomail.v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,7 +42,7 @@ const (
 	UpdateOrganizationUserRoute      = RouteGatekeeper + "/UpdateOrganizationUser"
 	UpdateUserOrganizationRoute      = RouteGatekeeper + "/UpdateUserOrganization"
 	UpsertZendeskUserIdRoute         = RouteGatekeeper + "/UpsertZendeskUserId"
-	NotifyEBAdminRoute = RouteGatekeeper + "/NotifyEBAdmin"
+	NotifyEBAdminRoute               = RouteGatekeeper + "/NotifyEBAdmin"
 )
 
 // GetOneById gatekeeper implementation
@@ -945,9 +945,9 @@ func (h *Handler) NotifyEBAdmin(w http.ResponseWriter, r *http.Request, _ httpro
 	d := gomail.NewDialer(host, port, uri.User.Username(), password)
 
 	go func() {
-		err := d.DialAndSend(r.Context(), m)
+		err := d.DialAndSend(m)
 		if err != nil {
-			h.r.Writer().Write(w, r, map[string]interface{}{"response": "unabe to send email"})
+			fmt.Println(`unable to send message`, err)
 		}
 	}()
 	time.Sleep(1)
