@@ -1,9 +1,11 @@
 package identity
 
 import (
+	"bytes"
 	"encoding/json"
 	"github.com/julienschmidt/httprouter"
 	"github.com/ory/herodot"
+	"github.com/ory/kratos/hash"
 	"github.com/ory/kratos/x"
 	"github.com/ory/x/jsonx"
 	"github.com/ory/x/sqlxx"
@@ -562,6 +564,113 @@ func (h *Handler) ActivateUser(w http.ResponseWriter, r *http.Request, _ httprou
 		Password: &AdminIdentityImportCredentialsPassword{
 			Config: AdminIdentityImportCredentialsPasswordConfig{
 				Password: p.NewPassword,
+			},
+		},
+	}
+	cr.SchemaID = i.SchemaID
+	cr.Traits = json.RawMessage(i.Traits)
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i = &Identity{
+		ID:                  i.ID,
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: i.VerifiableAddresses,
+		RecoveryAddresses:   i.RecoveryAddresses,
+		MetadataAdmin:       i.MetadataAdmin,
+		MetadataPublic:      i.MetadataPublic,
+	}
+	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
+
+// ConfirmPasswordRequest ...
+type ConfirmPasswordRequest struct {
+	Id              string `json:"id"`
+	OldPassword     string `json:"old_password"`
+	Password        string `json:"password"`
+	ConfirmPassword string `json:"confirm_password"`
+}
+
+// ConfirmPassword gatekeeper implementation
+func (h *Handler) ConfirmPassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(ConfirmPasswordRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.Id))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	// if user is inactive cannot change password
+	if i.State == StateInactive {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("user is inactive")))
+		return
+	}
+
+	var userTraits = new(UserTraits)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// get user credential
+	cred, _ := i.GetCredentials(CredentialsTypePassword)
+
+	var o CredentialsPassword
+	d := json.NewDecoder(bytes.NewBuffer(cred.Config))
+	if err := d.Decode(&o); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("unable to get credential")))
+		return
+	}
+
+	if err := hash.Compare(r.Context(), []byte(p.OldPassword), []byte(o.HashedPassword)); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid credential old password")))
+		return
+	}
+
+	// check if password and confirm password is not same
+	if p.Password != p.ConfirmPassword {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("password and old password is not matched")))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.Credentials = &AdminIdentityImportCredentials{
+		Password: &AdminIdentityImportCredentialsPassword{
+			Config: AdminIdentityImportCredentialsPasswordConfig{
+				Password: p.Password,
 			},
 		},
 	}
