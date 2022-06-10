@@ -18,6 +18,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"github.com/pkg/errors"
 
+	"github.com/ory/x/decoderx"
 	"github.com/ory/x/jsonx"
 	"github.com/ory/x/sqlxx"
 	"github.com/ory/x/urlx"
@@ -48,7 +49,8 @@ type (
 		IdentityHandler() *Handler
 	}
 	Handler struct {
-		r handlerDependencies
+		r  handlerDependencies
+		dx *decoderx.HTTP
 	}
 )
 
@@ -57,7 +59,10 @@ func (h *Handler) Config(ctx context.Context) *config.Config {
 }
 
 func NewHandler(r handlerDependencies) *Handler {
-	return &Handler{r: r}
+	return &Handler{
+		r:  r,
+		dx: decoderx.NewHTTP(),
+	}
 }
 
 func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
@@ -440,10 +445,7 @@ type AdminCreateIdentityImportCredentialsOidcProvider struct {
 //
 // Create an Identity
 //
-// This endpoint creates an identity. It is NOT possible to set an identity's credentials (password, ...)
-// using this method! A way to achieve that will be introduced in the future.
-//
-// Learn how identities work in [Ory Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
+// This endpoint creates an identity. Learn how identities work in [Ory Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
 //
 //     Consumes:
 //     - application/json
@@ -553,10 +555,7 @@ type AdminUpdateIdentityBody struct {
 //
 // Update an Identity
 //
-// This endpoint updates an identity. It is NOT possible to set an identity's credentials (password, ...)
-// using this method! A way to achieve that will be introduced in the future.
-//
-// The full identity payload (except credentials) is expected. This endpoint does not support patching.
+// This endpoint updates an identity. The full identity payload (except credentials) is expected. This endpoint does not support patching.
 //
 // Learn how identities work in [Ory Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
 //
@@ -579,7 +578,8 @@ type AdminUpdateIdentityBody struct {
 //       500: jsonError
 func (h *Handler) update(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var ur AdminUpdateIdentityBody
-	if err := errors.WithStack(jsonx.NewStrictDecoder(r.Body).Decode(&ur)); err != nil {
+	if err := h.dx.Decode(r, &ur,
+		decoderx.HTTPJSONDecoder()); err != nil {
 		h.r.Writer().WriteError(w, r, err)
 		return
 	}
