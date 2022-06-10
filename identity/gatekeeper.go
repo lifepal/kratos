@@ -821,3 +821,32 @@ func (h *Handler) GetUserWithOrganizationById(w http.ResponseWriter, r *http.Req
 	}
 	h.r.Writer().Write(w, r, resp)
 }
+
+// GetOrganizationByIdRequest ...
+type GetOrganizationByIdRequest struct {
+	Id string `json:"id"`
+}
+
+// GetOrganizationById gatekeeper implementation
+func (h *Handler) GetOrganizationById(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	var p = new(GetOrganizationByIdRequest)
+	p.Id = ps.ByName("id")
+
+	org, err := h.r.PrivilegedIdentityPool().GetOrganizationDetail(r.Context(), x.ParseUUID(p.Id))
+	if err != nil || org == nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &OrganizationGatekeeper{
+		Id:                       org.ID.String(),
+		Name:                     org.Name,
+		LeadsOwner:               org.LeadsOwner,
+		ShowCommission:           org.ShowCommission,
+		EnableQa:                 org.EnableQa,
+		ShowLevelInDashboard:     org.ShowLevelInDashboard,
+		ShowShortcutsInDashboard: org.ShowShortcutsInDashboard,
+		UseSimpleLeadStatus:      org.UseSimpleLeadStatus,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
