@@ -383,3 +383,81 @@ func (h *Handler) CreateOrganizationUser(w http.ResponseWriter, r *http.Request,
 	}
 	h.r.Writer().Write(w, r, resp)
 }
+
+// ChangePasswordRequest ...
+type ChangePasswordRequest struct {
+	Id          string `json:"id"`
+	NewPassword string `json:"new_password"`
+}
+
+// ChangePassword gatekeeper implementation
+func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(ChangePasswordRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.Id))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(UserTraits)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(AdminCreateIdentityBody)
+	cr.Credentials = &AdminIdentityImportCredentials{
+		Password: &AdminIdentityImportCredentialsPassword{
+			Config: AdminIdentityImportCredentialsPasswordConfig{
+				Password: p.NewPassword,
+			},
+		},
+	}
+	cr.SchemaID = i.SchemaID
+	cr.Traits = json.RawMessage(i.Traits)
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i = &Identity{
+		ID:                  i.ID,
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: i.VerifiableAddresses,
+		RecoveryAddresses:   i.RecoveryAddresses,
+		MetadataAdmin:       i.MetadataAdmin,
+		MetadataPublic:      i.MetadataPublic,
+	}
+	if err := h.importCredentials(r.Context(), i, cr.Credentials); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.r.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	resp := &User{
+		Id:          i.ID.String(),
+		Email:       userTraits.Email,
+		FirstName:   userTraits.FirstName,
+		LastName:    userTraits.LastName,
+		PhoneNumber: userTraits.PhoneNumber,
+	}
+	h.r.Writer().Write(w, r, resp)
+}
