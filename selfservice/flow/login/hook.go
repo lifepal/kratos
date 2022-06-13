@@ -3,6 +3,7 @@ package login
 import (
 	"encoding/json"
 	"github.com/ory/kratos/driver/config"
+	"github.com/ory/kratos/gatekeeperschema"
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/session"
 	"net/http"
@@ -52,56 +53,6 @@ type (
 		LoginHookExecutor() *HookExecutor
 	}
 )
-
-type UserTraits struct {
-	Email string `json:"email"`
-	Phone string `json:"phone"`
-	Source int `json:"source"`
-	HumanId int `json:"human_id"`
-	IsStaff bool `json:"is_staff"`
-	Username string `json:"username"`
-	IsActive bool `json:"is_active"`
-	LastName string `json:"last_name"`
-	SocialId int `json:"social_id"`
-	FirstName string `json:"first_name"`
-	LastLogin string `json:"last_login"`
-	UpdatedAt string `json:"updated_at"`
-	DateJoined string `json:"date_joined"`
-	IsVerified string `json:"is_verified"`
-	SocialType int `json:"social_type"`
-	IsSuperUser bool `json:"is_super_user"`
-	PhoneNumber string `json:"phone_number"`
-	OrganizationId string `json:"organization_id"`
-}
-
-type Token struct {
-	// user profile
-	Email string `json:"email"`
-	Phone string `json:"phone"`
-	Source int `json:"source"`
-	HumanId int `json:"human_id"`
-	IsStaff bool `json:"is_staff"`
-	Username string `json:"username"`
-	IsActive bool `json:"is_active"`
-	LastName string `json:"last_name"`
-	SocialId int `json:"social_id"`
-	FirstName string `json:"first_name"`
-	LastLogin string `json:"last_login"`
-	UpdatedAt string `json:"updated_at"`
-	DateJoined string `json:"date_joined"`
-	IsVerified string `json:"is_verified"`
-	SocialType int `json:"social_type"`
-	IsSuperUser bool `json:"is_super_user"`
-	PhoneNumber string `json:"phone_number"`
-	OrganizationId string `json:"organization_id"`
-	// end user profile
-
-	UserId string `json:"user_id"`
-	TokenType string `json:"token_type"`
-	SessionId string `json:"session_id"`
-	SessionToken string `json:"session_token"`
-	jwt.StandardClaims
-}
 
 type ResponseLogin struct {
 	Access string `json:"token,omitempty"`
@@ -245,10 +196,10 @@ func (e *HookExecutor) LifepallOauthPostLoginHook(w http.ResponseWriter, r *http
 
 	oryDefaultSessionLifetime := e.d.Config(r.Context()).SessionLifespan()
 
-	uTraits := new(UserTraits)
+	uTraits := new(gatekeeperschema.UserTraits)
 	json.Unmarshal(i.Traits, uTraits)
 	// create jwt claims
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, Token{
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, gatekeeperschema.Token{
 		Email: uTraits.Email,
 		Phone: uTraits.Phone,
 		Source: uTraits.Source,
@@ -264,7 +215,7 @@ func (e *HookExecutor) LifepallOauthPostLoginHook(w http.ResponseWriter, r *http
 		DateJoined: uTraits.DateJoined,
 		IsVerified: uTraits.IsVerified,
 		SocialType: uTraits.SocialType,
-		IsSuperUser: uTraits.IsSuperUser,
+		IsSuperUser: uTraits.IsSuperuser,
 		PhoneNumber: uTraits.PhoneNumber,
 		OrganizationId: uTraits.OrganizationId,
 		UserId: i.NID.String(),
@@ -276,7 +227,7 @@ func (e *HookExecutor) LifepallOauthPostLoginHook(w http.ResponseWriter, r *http
 			Issuer:    GetIssuer(),
 		},
 	})
-	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, Token{
+	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, gatekeeperschema.Token{
 		Email: uTraits.Email,
 		Phone: uTraits.Phone,
 		Source: uTraits.Source,
@@ -292,7 +243,7 @@ func (e *HookExecutor) LifepallOauthPostLoginHook(w http.ResponseWriter, r *http
 		DateJoined: uTraits.DateJoined,
 		IsVerified: uTraits.IsVerified,
 		SocialType: uTraits.SocialType,
-		IsSuperUser: uTraits.IsSuperUser,
+		IsSuperUser: uTraits.IsSuperuser,
 		PhoneNumber: uTraits.PhoneNumber,
 		OrganizationId: uTraits.OrganizationId,
 		UserId: i.NID.String(),
@@ -336,10 +287,10 @@ func (e *HookExecutor) LifepallPostLoginHook(w http.ResponseWriter, r *http.Requ
 
 	oryDefaultSessionLifetime := e.d.Config(r.Context()).SessionLifespan()
 
-	uTraits := new(UserTraits)
+	uTraits := new(gatekeeperschema.UserTraits)
 	json.Unmarshal(i.Traits, uTraits)
 	// create jwt claims
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, Token{
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, gatekeeperschema.Token{
 		Email: uTraits.Email,
 		Phone: uTraits.Phone,
 		Source: uTraits.Source,
@@ -355,7 +306,7 @@ func (e *HookExecutor) LifepallPostLoginHook(w http.ResponseWriter, r *http.Requ
 		DateJoined: uTraits.DateJoined,
 		IsVerified: uTraits.IsVerified,
 		SocialType: uTraits.SocialType,
-		IsSuperUser: uTraits.IsSuperUser,
+		IsSuperUser: uTraits.IsSuperuser,
 		PhoneNumber: uTraits.PhoneNumber,
 		OrganizationId: uTraits.OrganizationId,
 		UserId: i.NID.String(),
@@ -367,7 +318,7 @@ func (e *HookExecutor) LifepallPostLoginHook(w http.ResponseWriter, r *http.Requ
 			Issuer:    GetIssuer(),
 		},
 	})
-	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, Token{
+	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, gatekeeperschema.Token{
 		Email: uTraits.Email,
 		Phone: uTraits.Phone,
 		Source: uTraits.Source,
@@ -383,7 +334,7 @@ func (e *HookExecutor) LifepallPostLoginHook(w http.ResponseWriter, r *http.Requ
 		DateJoined: uTraits.DateJoined,
 		IsVerified: uTraits.IsVerified,
 		SocialType: uTraits.SocialType,
-		IsSuperUser: uTraits.IsSuperUser,
+		IsSuperUser: uTraits.IsSuperuser,
 		PhoneNumber: uTraits.PhoneNumber,
 		OrganizationId: uTraits.OrganizationId,
 		UserId: i.NID.String(),

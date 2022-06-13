@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/ory/kratos/driver/config"
+	"github.com/ory/kratos/gatekeeperschema"
 	"github.com/ory/kratos/selfservice/flow/login"
 	"net/http"
 	"time"
@@ -47,10 +48,10 @@ func (e *SessionIssuer) ExecutePostRegistrationPostPersistHook(w http.ResponseWr
 
 	if a.Type == flow.TypeAPI {
 		oryDefaultSessionLifetime := e.r.Config(r.Context()).SessionLifespan()
-		uTraits := new(login.UserTraits)
+		uTraits := new(gatekeeperschema.UserTraits)
 		json.Unmarshal(s.Identity.Traits, uTraits)
 		// create jwt claims
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, login.Token{
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, gatekeeperschema.Token{
 			Email: uTraits.Email,
 			Phone: uTraits.Phone,
 			Source: uTraits.Source,
@@ -66,7 +67,7 @@ func (e *SessionIssuer) ExecutePostRegistrationPostPersistHook(w http.ResponseWr
 			DateJoined: uTraits.DateJoined,
 			IsVerified: uTraits.IsVerified,
 			SocialType: uTraits.SocialType,
-			IsSuperUser: uTraits.IsSuperUser,
+			IsSuperUser: uTraits.IsSuperuser,
 			PhoneNumber: uTraits.PhoneNumber,
 			OrganizationId: uTraits.OrganizationId,
 			UserId: s.NID.String(),
@@ -78,7 +79,7 @@ func (e *SessionIssuer) ExecutePostRegistrationPostPersistHook(w http.ResponseWr
 				Issuer:    login.GetIssuer(),
 			},
 		})
-		refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, login.Token{
+		refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, gatekeeperschema.Token{
 			Email: uTraits.Email,
 			Phone: uTraits.Phone,
 			Source: uTraits.Source,
@@ -94,7 +95,7 @@ func (e *SessionIssuer) ExecutePostRegistrationPostPersistHook(w http.ResponseWr
 			DateJoined: uTraits.DateJoined,
 			IsVerified: uTraits.IsVerified,
 			SocialType: uTraits.SocialType,
-			IsSuperUser: uTraits.IsSuperUser,
+			IsSuperUser: uTraits.IsSuperuser,
 			PhoneNumber: uTraits.PhoneNumber,
 			OrganizationId: uTraits.OrganizationId,
 			UserId: s.NID.String(),

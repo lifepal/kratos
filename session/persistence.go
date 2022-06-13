@@ -19,6 +19,9 @@ type PersistenceProvider interface {
 }
 
 type Persister interface {
+	// GetSessionByIdentity retrieves a session from the store.
+	GetSessionByIdentity(ctx context.Context, identity uuid.UUID) (*Session, error)
+
 	// GetSession retrieves a session from the store.
 	GetSession(ctx context.Context, sid uuid.UUID) (*Session, error)
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
+	"github.com/ory/kratos/gatekeeperschema"
 	"github.com/ory/kratos/selfservice/flow/login"
 	"net/http"
 	"time"
@@ -318,10 +319,10 @@ func (e *HookExecutor) LifepalOauthPostRegistrationHook(w http.ResponseWriter, r
 	}
 
 	oryDefaultSessionLifetime := e.d.Config(r.Context()).SessionLifespan()
-		uTraits := new(login.UserTraits)
+		uTraits := new(gatekeeperschema.UserTraits)
 		json.Unmarshal(s.Identity.Traits, uTraits)
 		// create jwt claims
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, login.Token{
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, gatekeeperschema.Token{
 			Email: uTraits.Email,
 			Phone: uTraits.Phone,
 			Source: uTraits.Source,
@@ -337,7 +338,7 @@ func (e *HookExecutor) LifepalOauthPostRegistrationHook(w http.ResponseWriter, r
 			DateJoined: uTraits.DateJoined,
 			IsVerified: uTraits.IsVerified,
 			SocialType: uTraits.SocialType,
-			IsSuperUser: uTraits.IsSuperUser,
+			IsSuperUser: uTraits.IsSuperuser,
 			PhoneNumber: uTraits.PhoneNumber,
 			OrganizationId: uTraits.OrganizationId,
 			UserId: s.NID.String(),
@@ -349,7 +350,7 @@ func (e *HookExecutor) LifepalOauthPostRegistrationHook(w http.ResponseWriter, r
 				Issuer:    login.GetIssuer(),
 			},
 		})
-		refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, login.Token{
+		refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, gatekeeperschema.Token{
 			Email: uTraits.Email,
 			Phone: uTraits.Phone,
 			Source: uTraits.Source,
@@ -365,7 +366,7 @@ func (e *HookExecutor) LifepalOauthPostRegistrationHook(w http.ResponseWriter, r
 			DateJoined: uTraits.DateJoined,
 			IsVerified: uTraits.IsVerified,
 			SocialType: uTraits.SocialType,
-			IsSuperUser: uTraits.IsSuperUser,
+			IsSuperUser: uTraits.IsSuperuser,
 			PhoneNumber: uTraits.PhoneNumber,
 			OrganizationId: uTraits.OrganizationId,
 			UserId: s.NID.String(),
