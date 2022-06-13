@@ -962,3 +962,43 @@ func (h *Handler) UpdateUserOrganization(w http.ResponseWriter, r *http.Request,
 	h.r.Writer().Write(w, r, map[string]bool{"status": true})
 }
 
+type UpsertZendeskUserIdRequest struct {
+	ZendeskUserid string `json:"zendesk_userid"`
+	UserId        string `json:"user_id"`
+}
+
+// UpsertZendeskUserId gatekeeper implementation
+func (h *Handler) UpsertZendeskUserId(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p UpsertZendeskUserIdRequest
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(p.UserId))
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(gatekeeperschema.UserTraits)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// assign zendesk user id
+	userTraits.ZendeskUserid = p.ZendeskUserid
+	i.Traits, _ = json.Marshal(userTraits)
+
+	if err := h.r.IdentityManager().UpdateTraits(r.Context(), i.ID, i.Traits, ManagerAllowWriteProtectedTraits); err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+
+	h.r.Writer().Write(w, r, map[string]interface{}{
+		"updated":        true,
+		"zendesk_userid": userTraits.ZendeskUserid,
+		"user_id":        i.ID.String(),
+	})
+}
