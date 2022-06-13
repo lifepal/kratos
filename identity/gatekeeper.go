@@ -3,6 +3,7 @@ package identity
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/gofrs/uuid"
 	"github.com/julienschmidt/httprouter"
 	"github.com/ory/herodot"
 	"github.com/ory/kratos/hash"
@@ -59,6 +60,7 @@ type UserTraits struct {
 	UpdatedAt      string `json:"updated_at"`
 	OrganizationId string `json:"organization_id"`
 	ZendeskUserid  string `json:"zendesk_userid"`
+	GroupId        string `json:"group_id"`
 }
 
 type OrganizationGatekeeper struct {
@@ -850,3 +852,20 @@ func (h *Handler) GetOrganizationById(w http.ResponseWriter, r *http.Request, ps
 	}
 	h.r.Writer().Write(w, r, resp)
 }
+
+// GetUserByGroups gatekeeper implementation
+func (h *Handler) GetUserByGroups(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p AdminFilterIdentityBody
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	is, err := h.r.IdentityPool().ListIdentitiesFilteredWithoutPagination(r.Context(), p)
+	if err != nil {
+		h.r.Writer().WriteError(w, r, err)
+		return
+	}
+	h.r.Writer().Write(w, r, is)
+}
+
