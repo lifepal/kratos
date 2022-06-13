@@ -922,3 +922,43 @@ func (h *Handler) UpdateOrganizationUser(w http.ResponseWriter, r *http.Request,
 
 	h.r.Writer().Write(w, r, resp)
 }
+
+// UpdateUserOrganizationRequest ...
+type UpdateUserOrganizationRequest struct {
+	UserIds        []string `json:"user_ids"`
+	OrganizationId string   `json:"organization_id"`
+}
+
+// UpdateUserOrganization gatekeeper implementation
+func (h *Handler) UpdateUserOrganization(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p UpdateUserOrganizationRequest
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	for _, userId := range p.UserIds {
+		i, err := h.r.PrivilegedIdentityPool().GetIdentityConfidential(r.Context(), x.ParseUUID(userId))
+		if err != nil {
+			h.r.Writer().WriteError(w, r, err)
+			return
+		}
+
+		var userTraits = new(gatekeeperschema.UserTraits)
+		if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+			return
+		}
+
+		// assign organization id
+		userTraits.OrganizationId = p.OrganizationId
+		i.Traits, _ = json.Marshal(userTraits)
+
+		if err := h.r.IdentityManager().UpdateTraits(r.Context(), i.ID, i.Traits, ManagerAllowWriteProtectedTraits); err != nil {
+			h.r.Writer().WriteError(w, r, err)
+			return
+		}
+	}
+	h.r.Writer().Write(w, r, map[string]bool{"status": true})
+}
+
