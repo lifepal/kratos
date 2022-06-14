@@ -2,10 +2,12 @@ package identity
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gofrs/uuid"
 	"github.com/julienschmidt/httprouter"
+	"github.com/kubemq-io/kubemq-go"
 	"github.com/ory/herodot"
 	"github.com/ory/kratos/gatekeeperschema"
 	"github.com/ory/kratos/hash"
@@ -13,10 +15,9 @@ import (
 	"github.com/ory/x/jsonx"
 	"github.com/ory/x/sqlxx"
 	"github.com/pkg/errors"
-	"gopkg.in/gomail.v2"
 	"net/http"
-	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -914,6 +915,23 @@ func (h *Handler) UpsertZendeskUserId(w http.ResponseWriter, r *http.Request, _ 
 	})
 }
 
+var (
+	kubeConn sync.Once
+	kubeCl *kubemq.EventsClient
+)
+
+func newKubeMqClient(ctx context.Context, host string, port int, clientId string) (*kubemq.EventsClient, error) {
+	var err error
+	kubeConn.Do(func() {
+		kubeCl, err = kubemq.NewEventsClient(ctx,
+			kubemq.WithAddress(host, port),
+			kubemq.WithClientId(clientId),
+			kubemq.WithTransportType(kubemq.TransportTypeGRPC))
+	})
+	return kubeCl, err
+}
+
+
 // NotifyEBAdmin ...
 func (h *Handler) NotifyEBAdmin(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	var p gatekeeperschema.NotifyEBAdminRequest
@@ -921,8 +939,6 @@ func (h *Handler) NotifyEBAdmin(w http.ResponseWriter, r *http.Request, _ httpro
 		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
 		return
 	}
-
-	recipients := []string{"ferdina.kusumah@gmail.com"}
 
 	fromAddress := h.r.CourierConfig(r.Context()).CourierSMTPFromName()
 	if len(fromAddress) == 0 {
@@ -932,25 +948,47 @@ func (h *Handler) NotifyEBAdmin(w http.ResponseWriter, r *http.Request, _ httpro
 	t := time.Now()
 	subject := fmt.Sprintf(`Notifications for EB Admins about %s-%s`, p.Subject, t.Format("01/02/2006 15:04:05"))
 
-	m := gomail.NewMessage()
-	m.SetHeader("From", fromAddress)
-	m.SetHeader("To", recipients...)
-	m.SetHeader("Subject", subject)
-	m.SetBody("text/plain", p.Message)
+	// first will query data for get recipient to keto
+	// search all email user that have related to groups eb-admins
+	// to get recipients
+	var recipients []gatekeeperschema.NotifyEBAdminRecipientEmailSubject
 
-	uri := h.r.CourierConfig(r.Context()).CourierSMTPURL()
-	host := uri.Hostname()
-	port, _ := strconv.Atoi(uri.Port())
-	password, _ := uri.User.Password()
-	d := gomail.NewDialer(host, port, uri.User.Username(), password)
+	pBytes, err := json.Marshal(gatekeeperschema.NotifyEBAdminPayload{
+		Channel: "EMAIL",
+		TemplateId: "",
+		ShouldShorten: true,
+		ChannelData: gatekeeperschema.NotifyEBAdminTemplateData{
+			Subject: subject,
+			RecipientEmail: gatekeeperschema.NotifyEBAdminRecipientEmail{
+				From: gatekeeperschema.NotifyEBAdminRecipientEmailSubject{
+					Name: fromAddress,
+					Email: fromAddress,
+				},
+				To: recipients,
+			},
+		},
+	})
+	if err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
 
-	go func() {
-		err := d.DialAndSend(m)
+	id, _ := uuid.NewV4()
+	cfg := h.Config(r.Context()).KubeMqConfiguration()
+	cl, err := newKubeMqClient(r.Context(), cfg.Host, cfg.Port, cfg.ClientId)
+	if err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+	cl.Send(r.Context(), kubemq.NewEvent().
+			SetId(id.String()).
+			SetChannel(cfg.EmailChannel).
+			SetBody(pBytes))
+
 		if err != nil {
-			fmt.Println(`unable to send message`, err)
+			h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+			return
 		}
-	}()
-	time.Sleep(1)
 
 	h.r.Writer().Write(w, r, map[string]interface{}{
 		"response": true,
