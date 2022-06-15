@@ -1212,6 +1212,8 @@ func (h *Handler) OtpForgotPassword(w http.ResponseWriter, r *http.Request, _ ht
 		return
 	}
 
-	h.d.Writer().Write(w, r, map[string]interface{}{})
+	h.d.Writer().Write(w, r, map[string]interface{}{
+		"status": "ok",
+	})
 	return
 }
