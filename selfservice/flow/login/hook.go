@@ -55,7 +55,7 @@ type (
 )
 
 type ResponseLogin struct {
-	Access string `json:"token,omitempty"`
+	Access string `json:"access,omitempty"`
 	Refresh string `json:"refresh,omitempty"`
 }
 
@@ -199,7 +199,7 @@ func (e *HookExecutor) LifepallOauthPostLoginHook(w http.ResponseWriter, r *http
 	uTraits := new(gatekeeperschema.UserTraits)
 	json.Unmarshal(i.Traits, uTraits)
 	// create jwt claims
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, gatekeeperschema.Token{
+	access := jwt.NewWithClaims(jwt.SigningMethodHS256, gatekeeperschema.Token{
 		Email: uTraits.Email,
 		Phone: uTraits.Phone,
 		Source: uTraits.Source,
@@ -272,7 +272,7 @@ func (e *HookExecutor) LifepallOauthPostLoginHook(w http.ResponseWriter, r *http
 	}
 
 	var wrapResponse = new(ResponseLogin)
-	wrapResponse.Access, _ = token.SignedString([]byte(GetJwtSecret()))
+	wrapResponse.Access, _ = access.SignedString([]byte(GetJwtSecret()))
 	wrapResponse.Refresh, _ = refresh.SignedString([]byte(GetJwtSecret()))
 
 	e.d.Writer().Write(w, r, wrapResponse)
