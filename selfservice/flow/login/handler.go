@@ -6,7 +6,9 @@ import (
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/auth"
 	"fmt"
+	"github.com/ory/kratos/gatekeeperschema"
 	"github.com/ory/x/jsonx"
+	"github.com/ory/x/sqlxx"
 	"google.golang.org/api/option"
 	"net/http"
 	"sync"
@@ -39,14 +41,18 @@ import (
 )
 
 const (
+	DefaultSchemaId      = "lifepal"
 	RouteInitBrowserFlow = "/self-service/login/browser"
 	RouteInitAPIFlow     = "/self-service/login/api"
 
 	RouteGetFlow = "/self-service/login/flows"
 
-	RouteSubmitFlow             = "/self-service/login"
-	LifepalRouteSubmitFlow      = "/self-service/login/auth"
-	LifepalOauthRouteSubmitFlow = "/self-service/login/oauth"
+	RouteSubmitFlow                = "/self-service/login"
+	LifepalRouteSubmitFlow         = "/self-service/login/auth"
+	LifepalOauthRouteSubmitFlow    = "/self-service/login/oauth"
+	LifepalRouteGatekeeper         = "/gatekeeper"
+	FirebaseLoginByUidRoute = LifepalRouteGatekeeper + "/FirebaseLoginByUid"
+	FirebaseLoginByUidAutoRegisterRoute = LifepalRouteGatekeeper + "/FirebaseLoginByUidAutoRegister"
 )
 
 var LoginProvider = map[string]string{
@@ -57,6 +63,7 @@ var LoginProvider = map[string]string{
 type (
 	handlerDependencies interface {
 		HookExecutorProvider
+		identity.ManagementProvider
 		identity.PrivilegedPoolProvider
 		FlowPersistenceProvider
 		errorx.ManagementProvider
@@ -99,6 +106,8 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
+	admin.POST(FirebaseLoginByUidRoute, h.FirebaseLoginByUid)
+
 	admin.GET(RouteInitBrowserFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(RouteInitAPIFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(RouteGetFlow, x.RedirectToPublicRoute(h.d))
@@ -752,9 +761,9 @@ type LifepalOauthLoginPayload struct {
 	// identifier can be any code or id
 	// if login with google then identifier will as access token
 	// if login with firebase then identifier will as firebase user id
-	Identifier  string `json:"identifier,omitempty"`
-	Provider    string `json:"method,omitempty"`
-	Password 	string `json:"password,omitempty"`
+	Identifier string `json:"identifier,omitempty"`
+	Provider   string `json:"method,omitempty"`
+	Password   string `json:"password,omitempty"`
 }
 
 type GoogleResponseProfile struct {
@@ -807,7 +816,7 @@ func GetFirebaseConnection() (*auth.Client, error) {
 	return client, nil
 }
 
-func initConnection() *auth.Client{
+func initConnection() *auth.Client {
 	fireConnOnce.Do(func() {
 		firebaseConn, _ = GetFirebaseConnection()
 	})
@@ -866,8 +875,128 @@ func (h *Handler) lifepalOauthlSubmitFlow(w http.ResponseWriter, r *http.Request
 		i, err = h.d.PrivilegedIdentityPool().GetIdentityConfidentialByPhoneNumber(r.Context(), firebaseProfile.PhoneNumber)
 		if err != nil {
 			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrUserNotFound))
+		}
+	}
+
+	f, err := h.NewLoginFlow(w, r, flow.TypeAPI)
+	if err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+	f.Refresh = false
+
+	f, err = h.d.LoginFlowPersister().GetLoginFlow(r.Context(), f.ID)
+	if err != nil {
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	sess, err := h.d.SessionManager().FetchFromRequest(r.Context(), r)
+	if err == nil {
+		if x.IsJSONRequest(r) || f.Type == flow.TypeAPI {
+			// We are not upgrading AAL, nor are we refreshing. Error!
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(ErrAlreadyLoggedIn))
 			return
 		}
+
+		http.Redirect(w, r, h.d.Config(r.Context()).SelfServiceBrowserDefaultReturnTo().String(), http.StatusSeeOther)
+		return
+	} else if e := new(session.ErrNoActiveSessionFound); errors.As(err, &e) {
+		// Only failure scenario here is if we try to upgrade the session to a higher AAL without actually
+		// having a session.
+		if f.RequestedAAL > identity.AuthenticatorAssuranceLevel1 {
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(ErrSessionRequiredForHigherAAL))
+			return
+		}
+
+		sess = session.NewInactiveSession()
+	} else {
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	// add manual login provider in database
+	sess.AMR = append(sess.AMR, session.AuthenticationMethod{Method: identity.CredentialsType(LoginProvider[p.Provider]), AAL: identity.AuthenticatorAssuranceLevel1, CompletedAt: time.Now().UTC()})
+	if err := h.d.LoginHookExecutor().LifepallOauthPostLoginHook(w, r, f, i, sess); err != nil {
+		if errors.Is(err, ErrAddressNotVerified) {
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewAddressNotVerifiedError()))
+			return
+		}
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+}
+
+func (h *Handler) CreateUser(r *http.Request, p *gatekeeperschema.CreateWithoutPasswordRequest) (*identity.Identity, error) {
+	// create default payload for this request
+	var cr = new(identity.AdminCreateIdentityBody)
+	cr.SchemaID = DefaultSchemaId
+	cr.Traits, _ = json.Marshal(&gatekeeperschema.UserTraits{
+		Email:       p.Email,
+		FirstName:   p.FirstName,
+		LastName:    p.LastName,
+		PhoneNumber: p.PhoneNumber,
+		Phone:       p.PhoneNumber,
+		IsActive:    true,
+	})
+	cr.VerifiableAddresses = []identity.VerifiableAddress{
+		{Value: p.Email, Verified: true, Via: identity.VerifiableAddressTypeEmail, Status: identity.VerifiableAddressStatusCompleted},
+	}
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := identity.StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			return nil, err
+		}
+		state = cr.State
+	}
+
+	i := &identity.Identity{
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: cr.VerifiableAddresses,
+		RecoveryAddresses:   cr.RecoveryAddresses,
+		MetadataAdmin:       []byte(cr.MetadataAdmin),
+		MetadataPublic:      []byte(cr.MetadataPublic),
+	}
+	if err := h.d.IdentityManager().Create(r.Context(), i); err != nil {
+		return nil, err
+	}
+	return i, nil
+}
+
+func (h *Handler) FirebaseLoginByUid(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(LifepalOauthLoginPayload)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	//check if provider is exists
+	if _, ok := LoginProvider[p.Provider]; !ok {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidProvider))
+		return
+	}
+
+	// if login with firebase
+	if LoginProvider[p.Provider] != LoginProvider["firebase"] {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidProvider))
+		return
+	}
+
+	var i *identity.Identity
+	firebaseProfile, err := FetchUserFromFirebase(p)
+	if err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, err)
+		return
+	}
+	i, err = h.d.PrivilegedIdentityPool().GetIdentityConfidentialByPhoneNumber(r.Context(), firebaseProfile.PhoneNumber)
+	if err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrUserIsNotFound))
+		return
 	}
 
 	f, err := h.NewLoginFlow(w, r, flow.TypeAPI)
