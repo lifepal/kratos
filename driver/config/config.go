@@ -170,6 +170,10 @@ const (
 	ViperKeyWebAuthnPasswordless                             = "selfservice.methods.webauthn.config.passwordless"
 	ViperKeyClientHTTPNoPrivateIPRanges                      = "clients.http.disallow_private_ip_ranges"
 	ViperKeyVersion                                          = "version"
+	ViperKubeMQHost                                          = "kubemq.host"
+	ViperKubeMQPort                                          = "kubemq.port"
+	ViperKubeMQClientId                                      = "kubemq.clientId"
+	ViperKubeMQEmailChannel                                  = "kubemq.emailChannel"
 )
 
 const (
@@ -188,6 +192,12 @@ const (
 const DefaultSessionCookieName = "ory_kratos_session"
 
 type (
+	KubeMqConfiguration struct {
+		Host string
+		Port int
+		ClientId string
+		EmailChannel string
+	}
 	Argon2 struct {
 		Memory            bytesize.ByteSize `json:"memory"`
 		Iterations        uint32            `json:"iterations"`
@@ -315,6 +325,7 @@ func New(ctx context.Context, l *logrusx.Logger, stdOutOrErr io.Writer, opts ...
 	var c *Config
 
 	opts = append([]configx.OptionModifier{
+		configx.SkipValidation(),
 		configx.WithStderrValidationReporter(),
 		configx.OmitKeysFromTracing("dsn", "courier.smtp.connection_uri", "secrets.default", "secrets.cookie", "secrets.cipher", "client_secret"),
 		configx.WithImmutables("serve", "profiling", "log"),
@@ -1172,6 +1183,15 @@ func (p *Config) selfServiceReturnTo(key string, strategy string) *url.URL {
 
 func (p *Config) ConfigVersion() string {
 	return p.p.StringF(ViperKeyVersion, UnknownVersion)
+}
+
+func (p *Config) KubeMqConfiguration() KubeMqConfiguration {
+	return KubeMqConfiguration{
+		Host: p.p.StringF(ViperKubeMQHost, "localhost"),
+		Port: p.p.IntF(ViperKubeMQPort, 5000),
+		ClientId: p.p.StringF(ViperKubeMQClientId, "hello-world"),
+		EmailChannel: p.p.StringF(ViperKubeMQEmailChannel, "hello"),
+	}
 }
 
 func (p *Config) PasswordPolicyConfig() *PasswordPolicy {

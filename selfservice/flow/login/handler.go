@@ -54,6 +54,7 @@ const (
 	LifepalRouteGatekeeper         = "/gatekeeper"
 	FirebaseLoginByUidRoute = LifepalRouteGatekeeper + "/FirebaseLoginByUid"
 	FirebaseLoginByUidAutoRegisterRoute = LifepalRouteGatekeeper + "/FirebaseLoginByUidAutoRegister"
+	OtpForgotPasswordRoute               = LifepalRouteGatekeeper + "/OtpForgotPassword"
 )
 
 var LoginProvider = map[string]string{
@@ -64,6 +65,7 @@ var LoginProvider = map[string]string{
 type (
 	handlerDependencies interface {
 		HookExecutorProvider
+		identity.HandlerProvider
 		identity.ManagementProvider
 		identity.PrivilegedPoolProvider
 		FlowPersistenceProvider
@@ -109,6 +111,7 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.POST(FirebaseLoginByUidRoute, h.FirebaseLoginByUid)
 	admin.POST(FirebaseLoginByUidAutoRegisterRoute, h.FirebaseLoginByUidAutoRegister)
+	admin.POST(OtpForgotPasswordRoute, h.OtpForgotPassword)
 
 	admin.GET(RouteInitBrowserFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(RouteInitAPIFlow, x.RedirectToPublicRoute(h.d))
@@ -1138,4 +1141,78 @@ func (h *Handler) FirebaseLoginByUidAutoRegister(w http.ResponseWriter, r *http.
 		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
 		return
 	}
+}
+
+func (h *Handler) OtpForgotPassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(gatekeeperschema.OTPForgotPasswordRequest)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	var i *identity.Identity
+	firebaseProfile, err := FetchUserFromFirebase(&LifepalOauthLoginPayload{Identifier: p.FirebaseUid, Provider: "firebase"})
+	if err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, err)
+		return
+	}
+
+	i, err = h.d.PrivilegedIdentityPool().GetIdentityConfidentialByPhoneNumber(r.Context(), firebaseProfile.PhoneNumber)
+	if err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+
+	var userTraits = new(gatekeeperschema.UserTraits)
+	if err = json.Unmarshal(i.Traits, userTraits); err != nil {
+		h.d.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+		return
+	}
+
+	// create default payload for this request
+	var cr = new(identity.AdminCreateIdentityBody)
+	cr.Credentials = &identity.AdminIdentityImportCredentials{
+		Password: &identity.AdminIdentityImportCredentialsPassword{
+			Config: identity.AdminIdentityImportCredentialsPasswordConfig{
+				Password: p.NewPassword,
+			},
+		},
+	}
+	cr.SchemaID = i.SchemaID
+	cr.Traits = json.RawMessage(i.Traits)
+
+	stateChangedAt := sqlxx.NullTime(time.Now())
+	state := identity.StateActive
+	if cr.State != "" {
+		if err := cr.State.IsValid(); err != nil {
+			h.d.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)))
+			return
+		}
+		state = cr.State
+	}
+	i = &identity.Identity{
+		ID:                  i.ID,
+		SchemaID:            cr.SchemaID,
+		Traits:              []byte(cr.Traits),
+		State:               state,
+		StateChangedAt:      &stateChangedAt,
+		VerifiableAddresses: i.VerifiableAddresses,
+		RecoveryAddresses:   i.RecoveryAddresses,
+		MetadataAdmin:       i.MetadataAdmin,
+		MetadataPublic:      i.MetadataPublic,
+	}
+	if err := h.d.IdentityHandler().ImportCredentials(r.Context(), i, cr.Credentials); err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+
+	if err := h.d.IdentityManager().UpdateWithPassword(r.Context(), i); err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+
+	h.d.Writer().Write(w, r, map[string]interface{}{
+		"status": "ok",
+	})
+	return
 }

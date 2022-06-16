@@ -2,9 +2,12 @@ package identity
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/gofrs/uuid"
 	"github.com/julienschmidt/httprouter"
+	"github.com/kubemq-io/kubemq-go"
 	"github.com/ory/herodot"
 	"github.com/ory/kratos/gatekeeperschema"
 	"github.com/ory/kratos/hash"
@@ -14,6 +17,7 @@ import (
 	"github.com/pkg/errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -39,6 +43,7 @@ const (
 	UpdateOrganizationUserRoute      = RouteGatekeeper + "/UpdateOrganizationUser"
 	UpdateUserOrganizationRoute      = RouteGatekeeper + "/UpdateUserOrganization"
 	UpsertZendeskUserIdRoute         = RouteGatekeeper + "/UpsertZendeskUserId"
+	NotifyEBAdminRoute               = RouteGatekeeper + "/NotifyEBAdmin"
 )
 
 // GetOneById gatekeeper implementation
@@ -907,5 +912,85 @@ func (h *Handler) UpsertZendeskUserId(w http.ResponseWriter, r *http.Request, _ 
 		"updated":        true,
 		"zendesk_userid": userTraits.ZendeskUserid,
 		"user_id":        i.ID.String(),
+	})
+}
+
+var (
+	kubeConn sync.Once
+	kubeCl *kubemq.EventsClient
+)
+
+func newKubeMqClient(ctx context.Context, host string, port int, clientId string) (*kubemq.EventsClient, error) {
+	var err error
+	kubeConn.Do(func() {
+		kubeCl, err = kubemq.NewEventsClient(ctx,
+			kubemq.WithAddress(host, port),
+			kubemq.WithClientId(clientId),
+			kubemq.WithTransportType(kubemq.TransportTypeGRPC))
+	})
+	return kubeCl, err
+}
+
+
+// NotifyEBAdmin ...
+func (h *Handler) NotifyEBAdmin(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p gatekeeperschema.NotifyEBAdminRequest
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(&p); err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	fromAddress := h.r.CourierConfig(r.Context()).CourierSMTPFromName()
+	if len(fromAddress) == 0 {
+		fromAddress = "noreply@lifepal.co.id"
+	}
+
+	t := time.Now()
+	subject := fmt.Sprintf(`Notifications for EB Admins about %s-%s`, p.Subject, t.Format("01/02/2006 15:04:05"))
+
+	// first will query data for get recipient to keto
+	// search all email user that have related to groups eb-admins
+	// to get recipients
+	var recipients []gatekeeperschema.NotifyEBAdminRecipientEmailSubject
+
+	pBytes, err := json.Marshal(gatekeeperschema.NotifyEBAdminPayload{
+		Channel: "EMAIL",
+		TemplateId: "",
+		ShouldShorten: true,
+		ChannelData: gatekeeperschema.NotifyEBAdminTemplateData{
+			Subject: subject,
+			RecipientEmail: gatekeeperschema.NotifyEBAdminRecipientEmail{
+				From: gatekeeperschema.NotifyEBAdminRecipientEmailSubject{
+					Name: fromAddress,
+					Email: fromAddress,
+				},
+				To: recipients,
+			},
+		},
+	})
+	if err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	id, _ := uuid.NewV4()
+	cfg := h.Config(r.Context()).KubeMqConfiguration()
+	cl, err := newKubeMqClient(r.Context(), cfg.Host, cfg.Port, cfg.ClientId)
+	if err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+	cl.Send(r.Context(), kubemq.NewEvent().
+			SetId(id.String()).
+			SetChannel(cfg.EmailChannel).
+			SetBody(pBytes))
+
+		if err != nil {
+			h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+			return
+		}
+
+	h.r.Writer().Write(w, r, map[string]interface{}{
+		"response": true,
 	})
 }
