@@ -865,7 +865,7 @@ func (h *Handler) lifepalOauthlSubmitFlow(w http.ResponseWriter, r *http.Request
 		}
 		i, err = h.d.PrivilegedIdentityPool().GetIdentityConfidentialByEmail(r.Context(), userProfile.Email)
 		if err != nil {
-			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidAccessToken))
+			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrUserNotFound))
 			return
 		}
 	}
@@ -879,8 +879,7 @@ func (h *Handler) lifepalOauthlSubmitFlow(w http.ResponseWriter, r *http.Request
 		}
 		i, err = h.d.PrivilegedIdentityPool().GetIdentityConfidentialByPhoneNumber(r.Context(), firebaseProfile.PhoneNumber)
 		if err != nil {
-			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrUserFirebaseNotFound))
-			return
+			h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrUserNotFound))
 		}
 	}
 
