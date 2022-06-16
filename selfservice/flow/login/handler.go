@@ -11,6 +11,7 @@ import (
 	"github.com/ory/x/sqlxx"
 	"google.golang.org/api/option"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -107,6 +108,7 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.POST(FirebaseLoginByUidRoute, h.FirebaseLoginByUid)
+	admin.POST(FirebaseLoginByUidAutoRegisterRoute, h.FirebaseLoginByUidAutoRegister)
 
 	admin.GET(RouteInitBrowserFlow, x.RedirectToPublicRoute(h.d))
 	admin.GET(RouteInitAPIFlow, x.RedirectToPublicRoute(h.d))
@@ -998,6 +1000,96 @@ func (h *Handler) FirebaseLoginByUid(w http.ResponseWriter, r *http.Request, _ h
 	if err != nil {
 		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrUserIsNotFound))
 		return
+	}
+
+	f, err := h.NewLoginFlow(w, r, flow.TypeAPI)
+	if err != nil {
+		h.d.Writer().WriteError(w, r, err)
+		return
+	}
+	f.Refresh = false
+
+	f, err = h.d.LoginFlowPersister().GetLoginFlow(r.Context(), f.ID)
+	if err != nil {
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	sess, err := h.d.SessionManager().FetchFromRequest(r.Context(), r)
+	if err == nil {
+		if x.IsJSONRequest(r) || f.Type == flow.TypeAPI {
+			// We are not upgrading AAL, nor are we refreshing. Error!
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(ErrAlreadyLoggedIn))
+			return
+		}
+
+		http.Redirect(w, r, h.d.Config(r.Context()).SelfServiceBrowserDefaultReturnTo().String(), http.StatusSeeOther)
+		return
+	} else if e := new(session.ErrNoActiveSessionFound); errors.As(err, &e) {
+		// Only failure scenario here is if we try to upgrade the session to a higher AAL without actually
+		// having a session.
+		if f.RequestedAAL > identity.AuthenticatorAssuranceLevel1 {
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(ErrSessionRequiredForHigherAAL))
+			return
+		}
+
+		sess = session.NewInactiveSession()
+	} else {
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+
+	// add manual login provider in database
+	sess.AMR = append(sess.AMR, session.AuthenticationMethod{Method: identity.CredentialsType(LoginProvider[p.Provider]), AAL: identity.AuthenticatorAssuranceLevel1, CompletedAt: time.Now().UTC()})
+	if err := h.d.LoginHookExecutor().LifepallOauthPostLoginHook(w, r, f, i, sess); err != nil {
+		if errors.Is(err, ErrAddressNotVerified) {
+			h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, errors.WithStack(schema.NewAddressNotVerifiedError()))
+			return
+		}
+		h.d.LoginFlowErrorHandler().WriteFlowError(w, r, f, node.DefaultGroup, err)
+		return
+	}
+}
+
+func (h *Handler) FirebaseLoginByUidAutoRegister(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	var p = new(LifepalOauthLoginPayload)
+	if err := jsonx.NewStrictDecoder(r.Body).Decode(p); err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
+
+	//check if provider is exists
+	if _, ok := LoginProvider[p.Provider]; !ok {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidProvider))
+		return
+	}
+
+	if LoginProvider[p.Provider] != LoginProvider["firebase"] {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(ErrInvalidProvider))
+		return
+	}
+
+	var i *identity.Identity
+	firebaseProfile, err := FetchUserFromFirebase(p)
+	if err != nil {
+		h.d.Writer().WriteErrorCode(w, r, http.StatusBadRequest, err)
+		return
+	}
+
+	i, err = h.d.PrivilegedIdentityPool().GetIdentityConfidentialByPhoneNumber(r.Context(), firebaseProfile.PhoneNumber)
+	if err != nil {
+		firstName, lastName := firebaseProfile.DisplayName, ""
+		if v := strings.Split(firebaseProfile.DisplayName, " "); len(v) > 1 {
+			firstName = v[0]
+			lastName = strings.Join(v[1:], " ")
+		}
+
+		i, err = h.CreateUser(r, &gatekeeperschema.CreateWithoutPasswordRequest{
+			Email:       firebaseProfile.Email,
+			FirstName:   firstName,
+			LastName:    lastName,
+			PhoneNumber: firebaseProfile.PhoneNumber,
+		})
 	}
 
 	f, err := h.NewLoginFlow(w, r, flow.TypeAPI)
