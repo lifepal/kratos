@@ -1,5 +1,7 @@
 package gatekeeperschema
 
+import "github.com/dgrijalva/jwt-go"
+
 type Token struct {
 	// user profile
 	Email          string `json:"email"`
