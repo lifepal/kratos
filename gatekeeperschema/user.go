@@ -11,10 +11,10 @@ type UserTraits struct {
 	IsStaff        bool   `json:"is_staff"`
 	IsActive       bool   `json:"is_active"`
 	DateJoined     string `json:"date_joined"`
-	SocialId       int  `json:"social_id"`
-	SocialType     int  `json:"social_type"`
-	Source         int  `json:"source"`
-	HumanId        int  `json:"human_id"`
+	SocialId       int    `json:"social_id"`
+	SocialType     int    `json:"social_type"`
+	Source         int    `json:"source"`
+	HumanId        int    `json:"human_id"`
 	IsVerified     bool   `json:"is_verified"`
 	PhoneNumber    string `json:"phone_number"`
 	UpdatedAt      string `json:"updated_at"`
