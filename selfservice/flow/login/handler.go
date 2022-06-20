@@ -48,13 +48,13 @@ const (
 
 	RouteGetFlow = "/self-service/login/flows"
 
-	RouteSubmitFlow                = "/self-service/login"
-	LifepalRouteSubmitFlow         = "/self-service/login/auth"
-	LifepalOauthRouteSubmitFlow    = "/self-service/login/oauth"
-	LifepalRouteGatekeeper         = "/gatekeeper"
-	FirebaseLoginByUidRoute = LifepalRouteGatekeeper + "/FirebaseLoginByUid"
+	RouteSubmitFlow                     = "/self-service/login"
+	LifepalRouteSubmitFlow              = "/self-service/login/auth"
+	LifepalOauthRouteSubmitFlow         = "/self-service/login/oauth"
+	LifepalRouteGatekeeper              = "/gatekeeper"
+	FirebaseLoginByUidRoute             = LifepalRouteGatekeeper + "/FirebaseLoginByUid"
 	FirebaseLoginByUidAutoRegisterRoute = LifepalRouteGatekeeper + "/FirebaseLoginByUidAutoRegister"
-	OtpForgotPasswordRoute               = LifepalRouteGatekeeper + "/OtpForgotPassword"
+	OtpForgotPasswordRoute              = LifepalRouteGatekeeper + "/OtpForgotPassword"
 )
 
 var LoginProvider = map[string]string{
