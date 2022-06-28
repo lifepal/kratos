@@ -28,11 +28,11 @@ import (
 )
 
 const (
-	RouteCollectionFilter = "/identities-filter"
-	RouteOrganizationCollection = "/organization"
+	RouteCollectionFilter           = "/identities-filter"
+	RouteOrganizationCollection     = "/organization"
 	RouteOrganizationCollectionItem = RouteOrganizationCollection + "/:id"
-	RouteCollection = "/identities"
-	RouteItem = RouteCollection + "/:id"
+	RouteCollection                 = "/identities"
+	RouteItem                       = RouteCollection + "/:id"
 )
 
 type (
@@ -73,27 +73,6 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 		x.AdminPrefix+RouteCollection, x.AdminPrefix+RouteCollection+"/*",
 	)
 
-	// gatekeeper
-	public.GET(GetOneByIdRoute, x.RedirectToAdminRoute(h.r))
-	public.POST(GetOneByEmailRoute, x.RedirectToAdminRoute(h.r))
-	public.POST(GetOneByEmailPhoneRoute, x.RedirectToAdminRoute(h.r))
-	public.POST(CreateWithoutPasswordRoute, x.RedirectToAdminRoute(h.r))
-	public.POST(CreateWithPasswordRoute, x.RedirectToAdminRoute(h.r))
-	public.POST(CreateOrganizationUserRoute, x.RedirectToAdminRoute(h.r))
-	public.POST(ChangePasswordRoute, x.RedirectToAdminRoute(h.r))
-	public.PUT(SoftDeleteRoute, x.RedirectToAdminRoute(h.r))
-	public.PUT(ActivateUserRoute, x.RedirectToAdminRoute(h.r))
-	public.PUT(ConfirmPasswordRoute, x.RedirectToAdminRoute(h.r))
-	public.PUT(ChangeUserInfoRoute, x.RedirectToAdminRoute(h.r))
-	public.GET(GetUserWithOrganizationByIdRoute, x.RedirectToAdminRoute(h.r))
-	public.GET(GetOrganizationByIdRoute, x.RedirectToAdminRoute(h.r))
-	public.POST(GetUserByGroupsRoute, x.RedirectToAdminRoute(h.r))
-	public.POST(CreateOrganizationRoute, x.RedirectToAdminRoute(h.r))
-	public.PUT(UpdateOrganizationUserRoute, x.RedirectToAdminRoute(h.r))
-	public.PUT(UpdateUserOrganizationRoute, x.RedirectToAdminRoute(h.r))
-	public.PUT(UpsertZendeskUserIdRoute, x.RedirectToAdminRoute(h.r))
-	public.POST(NotifyEBAdminRoute, x.RedirectToAdminRoute(h.r))
-
 	public.GET(RouteCollection, x.RedirectToAdminRoute(h.r))
 	public.GET(RouteItem, x.RedirectToAdminRoute(h.r))
 	public.DELETE(RouteItem, x.RedirectToAdminRoute(h.r))
@@ -105,7 +84,6 @@ func (h *Handler) RegisterPublicRoutes(public *x.RouterPublic) {
 	public.DELETE(x.AdminPrefix+RouteItem, x.RedirectToAdminRoute(h.r))
 	public.POST(x.AdminPrefix+RouteCollection, x.RedirectToAdminRoute(h.r))
 	public.PUT(x.AdminPrefix+RouteItem, x.RedirectToAdminRoute(h.r))
-
 
 	public.GET(RouteOrganizationCollection, x.RedirectToAdminRoute(h.r))
 	public.GET(RouteOrganizationCollectionItem, x.RedirectToAdminRoute(h.r))
@@ -175,9 +153,9 @@ type AdminFilterIdentityBody struct {
 
 // swagger:model filterIdentityBody
 type FilterIdentityBody struct {
-	Key string `json:"key"`
-	Value string `json:"value"`
-	Values []string `json:"values"`
+	Key        string         `json:"key"`
+	Value      string         `json:"value"`
+	Values     []string       `json:"values"`
 	Comparison ComparisonType `json:"comparison"`
 }
 
@@ -672,8 +650,6 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request, ps httprouter.P
 	w.WriteHeader(http.StatusNoContent)
 }
 
-
-
 func (h *Handler) listOrganization(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	page, itemsPerPage := x.ParsePagination(r)
 	is, err := h.r.IdentityPool().ListOrganizations(r.Context(), page, itemsPerPage)
@@ -736,7 +712,6 @@ type AdminCreateOrganizationBody struct {
 	// ShowShortcutsInDashboard is the ID of the JSON Schema to be used for validating the identity's traits.
 	//
 	ShowShortcutsInDashboard bool `json:"show_shortcuts_in_dashboard"`
-
 }
 
 func (h *Handler) createOrganization(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -760,7 +735,7 @@ func (h *Handler) createOrganization(w http.ResponseWriter, r *http.Request, _ h
 		ShowShortcutsInDashboard: cr.ShowShortcutsInDashboard,
 	}
 
-	if err :=h.r.IdentityPool().(PrivilegedPool).CreateOrganization(r.Context(), i); err != nil {
+	if err := h.r.IdentityPool().(PrivilegedPool).CreateOrganization(r.Context(), i); err != nil {
 		h.r.Writer().WriteError(w, r, err)
 		return
 	}
@@ -801,7 +776,7 @@ func (h *Handler) updateOrganization(w http.ResponseWriter, r *http.Request, ps 
 	}
 
 	i := &Organization{
-		ID: x.ParseUUID(ps.ByName("id")),
+		ID:                       x.ParseUUID(ps.ByName("id")),
 		Logo:                     cr.Logo,
 		Name:                     cr.Name,
 		Slug:                     cr.Slug,
@@ -815,7 +790,7 @@ func (h *Handler) updateOrganization(w http.ResponseWriter, r *http.Request, ps 
 		ShowShortcutsInDashboard: cr.ShowShortcutsInDashboard,
 	}
 
-	if err :=h.r.IdentityPool().(PrivilegedPool).UpdateOrganization(r.Context(), i); err != nil {
+	if err := h.r.IdentityPool().(PrivilegedPool).UpdateOrganization(r.Context(), i); err != nil {
 		h.r.Writer().WriteError(w, r, err)
 		return
 	}
