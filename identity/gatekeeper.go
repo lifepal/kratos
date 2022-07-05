@@ -758,7 +758,24 @@ func (h *Handler) GetUserByGroups(w http.ResponseWriter, r *http.Request, _ http
 		h.r.Writer().WriteError(w, r, err)
 		return
 	}
-	h.r.Writer().Write(w, r, is)
+
+	var resp = make([]*gatekeeperschema.User, 0)
+	for _, u := range is {
+		var userTraits = new(gatekeeperschema.UserTraits)
+		if err = json.Unmarshal(u.Traits, userTraits); err != nil {
+			h.r.Writer().WriteError(w, r, errors.WithStack(errors.Errorf("invalid user traits")))
+			return
+		}
+		resp = append(resp, &gatekeeperschema.User{
+			Id:          u.ID.String(),
+			Email:       userTraits.Email,
+			FirstName:   userTraits.FirstName,
+			LastName:    userTraits.LastName,
+			PhoneNumber: userTraits.PhoneNumber,
+		})
+	}
+
+	h.r.Writer().Write(w, r, resp)
 }
 
 // CreateOrganization gatekeeper implementation
@@ -917,7 +934,7 @@ func (h *Handler) UpsertZendeskUserId(w http.ResponseWriter, r *http.Request, _ 
 
 var (
 	kubeConn sync.Once
-	kubeCl *kubemq.EventsClient
+	kubeCl   *kubemq.EventsClient
 )
 
 func newKubeMqClient(ctx context.Context, host string, port int, clientId string) (*kubemq.EventsClient, error) {
@@ -930,7 +947,6 @@ func newKubeMqClient(ctx context.Context, host string, port int, clientId string
 	})
 	return kubeCl, err
 }
-
 
 // NotifyEBAdmin ...
 func (h *Handler) NotifyEBAdmin(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -954,14 +970,14 @@ func (h *Handler) NotifyEBAdmin(w http.ResponseWriter, r *http.Request, _ httpro
 	var recipients []gatekeeperschema.NotifyEBAdminRecipientEmailSubject
 
 	pBytes, err := json.Marshal(gatekeeperschema.NotifyEBAdminPayload{
-		Channel: "EMAIL",
-		TemplateId: "",
+		Channel:       "EMAIL",
+		TemplateId:    "",
 		ShouldShorten: true,
 		ChannelData: gatekeeperschema.NotifyEBAdminTemplateData{
 			Subject: subject,
 			RecipientEmail: gatekeeperschema.NotifyEBAdminRecipientEmail{
 				From: gatekeeperschema.NotifyEBAdminRecipientEmailSubject{
-					Name: fromAddress,
+					Name:  fromAddress,
 					Email: fromAddress,
 				},
 				To: recipients,
@@ -981,14 +997,14 @@ func (h *Handler) NotifyEBAdmin(w http.ResponseWriter, r *http.Request, _ httpro
 		return
 	}
 	cl.Send(r.Context(), kubemq.NewEvent().
-			SetId(id.String()).
-			SetChannel(cfg.EmailChannel).
-			SetBody(pBytes))
+		SetId(id.String()).
+		SetChannel(cfg.EmailChannel).
+		SetBody(pBytes))
 
-		if err != nil {
-			h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
-			return
-		}
+	if err != nil {
+		h.r.Writer().WriteErrorCode(w, r, http.StatusBadRequest, errors.WithStack(err))
+		return
+	}
 
 	h.r.Writer().Write(w, r, map[string]interface{}{
 		"response": true,
