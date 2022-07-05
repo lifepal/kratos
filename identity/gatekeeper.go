@@ -695,28 +695,12 @@ func (h *Handler) GetUserWithOrganizationById(w http.ResponseWriter, r *http.Req
 		return
 	}
 	resp := &gatekeeperschema.User{
-		Id:          i.ID.String(),
-		Email:       userTraits.Email,
-		FirstName:   userTraits.FirstName,
-		LastName:    userTraits.LastName,
-		PhoneNumber: userTraits.PhoneNumber,
-	}
-
-	org, err := h.r.PrivilegedIdentityPool().GetOrganizationDetail(r.Context(), x.ParseUUID(userTraits.OrganizationId))
-	if err != nil || org == nil {
-		h.r.Writer().Write(w, r, resp)
-		return
-	}
-
-	resp.Organization = &gatekeeperschema.OrganizationGatekeeper{
-		Id:                       org.ID.String(),
-		Name:                     org.Name,
-		LeadsOwner:               org.LeadsOwner,
-		ShowCommission:           org.ShowCommission,
-		EnableQa:                 org.EnableQa,
-		ShowLevelInDashboard:     org.ShowLevelInDashboard,
-		ShowShortcutsInDashboard: org.ShowShortcutsInDashboard,
-		UseSimpleLeadStatus:      org.UseSimpleLeadStatus,
+		Id:             i.ID.String(),
+		Email:          userTraits.Email,
+		FirstName:      userTraits.FirstName,
+		LastName:       userTraits.LastName,
+		PhoneNumber:    userTraits.PhoneNumber,
+		OrganizationId: userTraits.OrganizationId,
 	}
 	h.r.Writer().Write(w, r, resp)
 }
