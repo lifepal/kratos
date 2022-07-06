@@ -25,11 +25,11 @@ type UserTraits struct {
 
 // User Gatekeeper struct
 type User struct {
-	Id             string                  `json:"id,omitempty"`
-	Email          string                  `json:"email,omitempty"`
-	FirstName      string                  `json:"first_name,omitempty"`
-	LastName       string                  `json:"last_name,omitempty"`
-	PhoneNumber    string                  `json:"phone_number,omitempty"`
-	OrganizationId string                  `json:"organization_id,omitempty"`
+	Id             string                  `json:"id"`
+	Email          string                  `json:"email"`
+	FirstName      string                  `json:"first_name"`
+	LastName       string                  `json:"last_name"`
+	PhoneNumber    string                  `json:"phone_number"`
+	OrganizationId string                  `json:"organization_id"`
 	Organization   *OrganizationGatekeeper `json:"organization,omitempty"`
 }
