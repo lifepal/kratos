@@ -135,10 +135,16 @@ func (h *Handler) CreateWithoutPassword(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
+	username := p.Email
+	if len(username) == 0 {
+		username = p.PhoneNumber
+	}
+
 	// create default payload for this request
 	var cr = new(AdminCreateIdentityBody)
 	cr.SchemaID = DefaultSchemaId
 	cr.Traits, _ = json.Marshal(&gatekeeperschema.UserTraits{
+		Username:    username,
 		Email:       p.Email,
 		FirstName:   p.FirstName,
 		LastName:    p.LastName,
@@ -202,8 +208,15 @@ func (h *Handler) CreateWithPassword(w http.ResponseWriter, r *http.Request, _ h
 			},
 		},
 	}
+
+	username := p.Email
+	if len(username) == 0 {
+		username = p.PhoneNumber
+	}
+
 	cr.SchemaID = DefaultSchemaId
 	cr.Traits, _ = json.Marshal(&gatekeeperschema.UserTraits{
+		Username:    username,
 		Email:       p.Email,
 		FirstName:   p.FirstName,
 		LastName:    p.LastName,
@@ -271,8 +284,14 @@ func (h *Handler) CreateOrganizationUser(w http.ResponseWriter, r *http.Request,
 			},
 		},
 	}
+
+	username := p.Email
+	if len(username) == 0 {
+		username = p.PhoneNumber
+	}
 	cr.SchemaID = DefaultSchemaId
 	cr.Traits, _ = json.Marshal(&gatekeeperschema.UserTraits{
+		Username:       username,
 		Email:          p.Email,
 		FirstName:      p.FirstName,
 		LastName:       p.LastName,
@@ -344,6 +363,13 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httpr
 		return
 	}
 
+	if len(userTraits.Username) == 0 {
+		userTraits.Username = userTraits.Email
+		if len(userTraits.Email) == 0 {
+			userTraits.Username = userTraits.PhoneNumber
+		}
+	}
+
 	// create default payload for this request
 	var cr = new(AdminCreateIdentityBody)
 	cr.Credentials = &AdminIdentityImportCredentials{
@@ -354,7 +380,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request, _ httpr
 		},
 	}
 	cr.SchemaID = i.SchemaID
-	cr.Traits = json.RawMessage(i.Traits)
+	cr.Traits, _ = json.Marshal(userTraits)
 
 	stateChangedAt := sqlxx.NullTime(time.Now())
 	state := StateActive
